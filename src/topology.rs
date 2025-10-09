@@ -1,3 +1,16 @@
+use crate::app::{App, AppState, TopologyState};
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use ratatui::{
+    Frame,
+    layout::{Constraint, Layout},
+    style::{Color, Style, Stylize},
+    text::Line,
+    widgets::{
+        Block, Paragraph,
+        canvas::{Canvas, Circle, Line as CanvasLine, Points},
+    },
+};
+
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -75,6 +88,340 @@ impl TopologyResponse {
             })
             .collect();
         format!("[{}]", ranges.join(", "))
+    }
+}
+impl App {
+    pub fn draw_topology(&mut self, frame: &mut Frame, state: &TopologyState) {
+        let area = frame.area();
+
+        let vertical = Layout::vertical([
+            Constraint::Length(3), // Title
+            Constraint::Min(0),    // Content
+            Constraint::Length(3), // Footer
+        ]);
+        let [title_area, content_area, footer_area] = vertical.areas(area);
+
+        // Title
+        let title = Line::from("Topology Ring View").bold().blue().centered();
+        frame.render_widget(Paragraph::new(title).block(Block::bordered()), title_area);
+
+        // Content
+        match state {
+            TopologyState::Loading => {
+                frame.render_widget(
+                    Paragraph::new("Loading topology...")
+                        .block(Block::bordered())
+                        .centered(),
+                    content_area,
+                );
+            }
+            TopologyState::Error(err) => {
+                frame.render_widget(
+                    Paragraph::new(format!("Error: {}", err))
+                        .block(Block::bordered())
+                        .style(Style::default().fg(Color::Red))
+                        .centered(),
+                    content_area,
+                );
+            }
+            TopologyState::Loaded(topology) => {
+                self.draw_topology_ring(frame, content_area, topology);
+            }
+        }
+
+        // Footer
+        let footer_text = match state {
+            TopologyState::Loaded(_) => {
+                "Use ↑↓ to select device  |  Enter to interact  |  Esc to go back"
+            }
+            _ => "Press Esc to go back",
+        };
+        frame.render_widget(
+            Paragraph::new(footer_text)
+                .block(Block::bordered())
+                .centered(),
+            footer_area,
+        );
+    }
+
+    pub fn draw_topology_ring(
+        &mut self,
+        frame: &mut Frame,
+        area: ratatui::layout::Rect,
+        topology: &TopologyResponse,
+    ) {
+        use std::f64::consts::PI;
+
+        let num_devices = topology.devices.len();
+        if num_devices == 0 {
+            frame.render_widget(
+                Paragraph::new("No devices in topology")
+                    .block(Block::bordered())
+                    .centered(),
+                area,
+            );
+            return;
+        }
+
+        // Calculate circle parameters for canvas
+        let radius = 35.0;
+        let center_x = 0.0;
+        let center_y = 0.0;
+
+        // Prepare device data for drawing
+        struct DeviceInfo {
+            x: f64,
+            y: f64,
+            name: String,
+            ip: String,
+            layers: String,
+            is_selected: bool,
+        }
+
+        let mut devices_info = Vec::new();
+
+        for (i, device) in topology.devices.iter().enumerate() {
+            let angle = 2.0 * PI * (i as f64) / (num_devices as f64) - PI / 2.0; // Start from top
+            let x = center_x + radius * angle.cos();
+            let y = center_y + radius * angle.sin();
+
+            // Get full device name (remove "shard-" prefix)
+            let full_name = device
+                .instance
+                .strip_prefix("shard-")
+                .unwrap_or(&device.instance)
+                .to_string();
+
+            // Apply sliding window animation to device name
+            let short_name = self.get_sliding_text(&full_name, 30);
+
+            // Get IP and GRPC port
+            let ip = format!("{}:{}", device.local_ip, device.shard_port);
+
+            // Get layer assignments
+            let layers = topology
+                .assignments
+                .iter()
+                .find(|a| a.service == device.instance)
+                .map(|a| TopologyResponse::format_layers(&a.layers))
+                .unwrap_or_else(|| "[]".to_string());
+
+            let is_selected = i == self.selected_device;
+
+            devices_info.push(DeviceInfo {
+                x,
+                y,
+                name: short_name,
+                ip,
+                layers,
+                is_selected,
+            });
+        }
+
+        // Clone for use in canvas closure
+        let devices_clone = devices_info
+            .iter()
+            .map(|d| {
+                (
+                    d.x,
+                    d.y,
+                    d.name.clone(),
+                    d.ip.clone(),
+                    d.layers.clone(),
+                    d.is_selected,
+                )
+            })
+            .collect::<Vec<_>>();
+
+        let model_info = format!(
+            "Model: {}  |  Layers: {}",
+            topology.model, topology.num_layers
+        );
+
+        // Draw canvas with ring
+        let canvas = Canvas::default()
+            .block(Block::bordered().title(model_info))
+            .x_bounds([-60.0, 60.0])
+            .y_bounds([-60.0, 60.0])
+            .paint(move |ctx| {
+                // Draw the circle
+                ctx.draw(&Circle {
+                    x: center_x,
+                    y: center_y,
+                    radius,
+                    color: Color::Cyan,
+                });
+
+                // Draw connection lines between devices
+                for i in 0..devices_clone.len() {
+                    let (x1, y1, _, _, _, _) = devices_clone[i];
+                    let next_i = (i + 1) % devices_clone.len();
+                    let (x2, y2, _, _, _, _) = devices_clone[next_i];
+
+                    ctx.draw(&CanvasLine {
+                        x1,
+                        y1,
+                        x2,
+                        y2,
+                        color: Color::DarkGray,
+                    });
+                }
+
+                // Draw devices with their info
+                for (x, y, name, ip, layers, is_selected) in devices_clone.iter() {
+                    // Draw device point with larger size if selected
+                    let color = if *is_selected {
+                        Color::Yellow
+                    } else {
+                        Color::Green
+                    };
+
+                    // Draw a larger point for better visibility
+                    ctx.draw(&Points {
+                        coords: &[(*x, *y)],
+                        color,
+                    });
+
+                    // If selected, draw additional points around it to make it stand out
+                    if *is_selected {
+                        ctx.draw(&Points {
+                            coords: &[
+                                (*x + 0.5, *y),
+                                (*x - 0.5, *y),
+                                (*x, *y + 0.5),
+                                (*x, *y - 0.5),
+                            ],
+                            color: Color::Yellow,
+                        });
+                    }
+
+                    // Calculate text offset based on position to avoid overlap with circle
+                    let text_offset = 5.0;
+                    let angle = y.atan2(*x);
+                    let text_x = x + text_offset * angle.cos();
+                    let text_y = y + text_offset * angle.sin();
+
+                    // Draw device info: name, IP, layers (each on a separate line)
+                    // Highlight text in yellow if selected
+                    if *is_selected {
+                        ctx.print(text_x, text_y + 3.0, name.clone().yellow());
+                        ctx.print(text_x, text_y, ip.clone().yellow());
+                        ctx.print(text_x, text_y - 3.0, layers.clone().yellow());
+                    } else {
+                        ctx.print(text_x, text_y + 3.0, name.clone());
+                        ctx.print(text_x, text_y, ip.clone());
+                        ctx.print(text_x, text_y - 3.0, layers.clone());
+                    }
+                }
+            });
+
+        frame.render_widget(canvas, area);
+    }
+
+    pub fn draw_shard_interaction(&mut self, frame: &mut Frame, device: &str) {
+        let area = frame.area();
+
+        let vertical = Layout::vertical([
+            Constraint::Length(3), // Title
+            Constraint::Min(0),    // Content
+            Constraint::Length(3), // Footer
+        ]);
+        let [title_area, content_area, footer_area] = vertical.areas(area);
+
+        // Title
+        let short_name = TopologyResponse::device_short_name(device);
+        let title = Line::from(format!("Shard Interaction: {}", short_name))
+            .bold()
+            .blue()
+            .centered();
+        frame.render_widget(Paragraph::new(title).block(Block::bordered()), title_area);
+
+        // Content - Placeholder for now
+        let content = vec![
+            Line::from(""),
+            Line::from(format!("Device: {}", device)).bold(),
+            Line::from(""),
+            Line::from("This window will allow you to:"),
+            Line::from("  • Send GET/POST requests to this shard"),
+            Line::from("  • View shard information"),
+            Line::from("  • Test connectivity"),
+            Line::from(""),
+            Line::from("Coming soon...").dim(),
+        ];
+
+        frame.render_widget(
+            Paragraph::new(content).block(Block::bordered().title("Shard Communication")),
+            content_area,
+        );
+
+        // Footer
+        frame.render_widget(
+            Paragraph::new("Press Esc to go back to topology")
+                .block(Block::bordered())
+                .centered(),
+            footer_area,
+        );
+    }
+
+    pub fn handle_topology_input(&mut self, key: KeyEvent) {
+        match (key.modifiers, key.code) {
+            (_, KeyCode::Esc) => {
+                self.state = AppState::Menu;
+                self.selected_device = 0; // Reset selection
+            }
+            (KeyModifiers::CONTROL, KeyCode::Char('c') | KeyCode::Char('C')) => self.quit(),
+            (_, KeyCode::Up) => self.topology_device_up(),
+            (_, KeyCode::Down) => self.topology_device_down(),
+            (_, KeyCode::Enter) => self.open_shard_interaction(),
+            _ => {}
+        }
+    }
+
+    pub fn handle_shard_interaction_input(&mut self, key: KeyEvent) {
+        match (key.modifiers, key.code) {
+            (_, KeyCode::Esc) => {
+                // Go back to topology view - restore the topology state
+                if let AppState::ShardInteraction(_) = &self.state {
+                    // We need to restore the topology - for now go back to menu
+                    // TODO: Keep topology state when entering shard interaction
+                    self.state = AppState::Menu;
+                }
+            }
+            (KeyModifiers::CONTROL, KeyCode::Char('c') | KeyCode::Char('C')) => self.quit(),
+            _ => {}
+        }
+    }
+
+    fn topology_device_up(&mut self) {
+        if let AppState::Topology(TopologyState::Loaded(topology)) = &self.state {
+            let device_count = topology.devices.len();
+            if device_count > 0 {
+                // Cycle: if at 0, wrap to last device
+                if self.selected_device == 0 {
+                    self.selected_device = device_count - 1;
+                } else {
+                    self.selected_device -= 1;
+                }
+            }
+        }
+    }
+
+    fn topology_device_down(&mut self) {
+        if let AppState::Topology(TopologyState::Loaded(topology)) = &self.state {
+            let device_count = topology.devices.len();
+            if device_count > 0 {
+                // Cycle: if at last, wrap to 0
+                self.selected_device = (self.selected_device + 1) % device_count;
+            }
+        }
+    }
+
+    fn open_shard_interaction(&mut self) {
+        if let AppState::Topology(TopologyState::Loaded(topology)) = &self.state {
+            if let Some(device) = topology.devices.get(self.selected_device) {
+                self.state = AppState::ShardInteraction(device.instance.clone());
+            }
+        }
     }
 }
 
