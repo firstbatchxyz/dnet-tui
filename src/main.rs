@@ -200,15 +200,31 @@ impl App {
 
         // Create layout
         let vertical = Layout::vertical([
-            Constraint::Length(3), // Title
-            Constraint::Min(0),    // Menu
-            Constraint::Length(3), // Footer
+            Constraint::Length(11), // ASCII art (no border)
+            Constraint::Min(0),     // Menu
+            Constraint::Length(1),  // Footer (no border)
         ]);
-        let [title_area, menu_area, footer_area] = vertical.areas(area);
+        let [art_area, menu_area, footer_area] = vertical.areas(area);
 
-        // Title
-        let title = Line::from("Dnet TUI - Main Menu").bold().blue().centered();
-        frame.render_widget(Paragraph::new(title).block(Block::bordered()), title_area);
+        // ASCII Art
+        #[rustfmt::skip]
+        let ascii_art = vec![
+          Line::from("                                                                             "),
+          Line::from("      00000    000000                                                        "),
+          Line::from("   000    000000000000000   0000000000000000      000000000000          00000"),
+          Line::from(" 000       000000   000000000   00000    00000 000    00000            000000"),
+          Line::from("00        00000     000000     00000    00000000     00000           00000000"),
+          Line::from("00       00000     0000000    00000    00000000     00000           00 000000"),
+          Line::from("00      00000     0000000    0000000000000  000    00000          00  0000000"),
+          Line::from(" 000   00000     0000000    00000   000000  00    000000        000   000000 "),
+          Line::from("      00000      00000     00000    00000   00   00000000      00    0000000 "),
+          Line::from("     00000     000000     000000   000000    00 000000  0000000000000 00000  "),
+          Line::from("    00000    0000000     00000     00000 0     000000      000        00000  "),
+          Line::from(" 0000000   00000       0000000    00000000  000000000    000        0000000  "),
+          Line::from("                                                                             "),
+        ];
+
+        frame.render_widget(Paragraph::new(ascii_art).centered(), art_area);
 
         // Menu items
         let menu_items: Vec<ListItem> = MenuItem::all()
@@ -228,16 +244,28 @@ impl App {
             })
             .collect();
 
-        let menu_list = List::new(menu_items)
-            .block(Block::bordered().title("Use ↑↓ to navigate, Enter to select"));
+        // Calculate vertical centering for menu
+        let menu_height = menu_items.len() as u16;
+        let available_height = menu_area.height;
+        let top_padding = (available_height.saturating_sub(menu_height)) / 2;
 
-        frame.render_widget(menu_list, menu_area);
+        // Create centered area for menu
+        let centered_vertical = Layout::vertical([
+            Constraint::Length(top_padding),
+            Constraint::Length(menu_height),
+            Constraint::Min(0),
+        ]);
+        let [_, centered_menu_area, _] = centered_vertical.areas(menu_area);
 
-        // Footer
+        let menu_list = List::new(menu_items);
+
+        frame.render_widget(menu_list, centered_menu_area);
+
+        // Footer - no border, gray text
         let footer_text = format!("API: {}  |  Press Esc or q to quit", self.config.api_url());
         frame.render_widget(
             Paragraph::new(footer_text)
-                .block(Block::bordered())
+                .style(Style::default().fg(Color::DarkGray))
                 .centered(),
             footer_area,
         );
@@ -339,22 +367,22 @@ impl App {
 
             // Get full device name (remove "shard-" prefix)
             let full_name = device
-                .name
+                .instance
                 .strip_prefix("shard-")
-                .unwrap_or(&device.name)
+                .unwrap_or(&device.instance)
                 .to_string();
 
             // Apply sliding window animation to device name
             let short_name = self.get_sliding_text(&full_name, 30);
 
             // Get IP and GRPC port
-            let ip = format!("{}:{}", device.local_ip, device.grpc_port);
+            let ip = format!("{}:{}", device.local_ip, device.shard_port);
 
             // Get layer assignments
             let layers = topology
                 .assignments
                 .iter()
-                .find(|a| a.service == device.name)
+                .find(|a| a.service == device.instance)
                 .map(|a| TopologyResponse::format_layers(&a.layers))
                 .unwrap_or_else(|| "[]".to_string());
 
@@ -758,7 +786,7 @@ impl App {
     fn open_shard_interaction(&mut self) {
         if let AppState::Topology(TopologyState::Loaded(topology)) = &self.state {
             if let Some(device) = topology.devices.get(self.selected_device) {
-                self.state = AppState::ShardInteraction(device.name.clone());
+                self.state = AppState::ShardInteraction(device.instance.clone());
             }
         }
     }

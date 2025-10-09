@@ -8,16 +8,16 @@ pub struct TopologyResponse {
     pub devices: Vec<Device>,
     pub assignments: Vec<Assignment>,
     pub next_service_map: HashMap<String, String>,
-    pub prefetch_windows: HashMap<String, u32>,
     pub solution: Solution,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Device {
-    pub name: String,
+    pub instance: String,
     pub local_ip: String,
-    pub http_port: u16,
-    pub grpc_port: u16,
+    pub server_port: u16,
+    pub shard_port: u16,
+    // FIXME: more info to be deser'ed here
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -51,7 +51,6 @@ impl TopologyResponse {
     pub async fn fetch(api_url: &str) -> color_eyre::Result<Self> {
         let url = format!("{}/v1/topology", api_url);
         let response = reqwest::get(&url).await?;
-        println!("Fetched topology data from {}", url);
         let topology: TopologyResponse = response.json().await?;
         Ok(topology)
     }
