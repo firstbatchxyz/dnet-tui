@@ -12,7 +12,6 @@ use ratatui::{
 };
 
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum TopologyState {
@@ -37,7 +36,6 @@ pub struct TopologyResponse {
     pub num_layers: u32,
     pub devices: Vec<Device>,
     pub assignments: Vec<Assignment>,
-    pub next_service_map: HashMap<String, String>,
     pub solution: Solution,
 }
 
@@ -55,6 +53,7 @@ pub struct Assignment {
     pub service: String,
     pub layers: Vec<Vec<u32>>,
     pub next_service: String,
+    pub prefetch_window: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -112,7 +111,7 @@ impl App {
 
         // Title
         let title = Line::from("Topology Ring View").bold().blue().centered();
-        frame.render_widget(Paragraph::new(title).block(Block::bordered()), title_area);
+        frame.render_widget(Paragraph::new(title), title_area);
 
         // Content
         match state {
@@ -173,6 +172,7 @@ impl App {
         let center_y = 0.0;
 
         // Prepare device data for drawing
+        #[derive(Clone)]
         struct DeviceInfo {
             x: f64,
             y: f64,
@@ -180,14 +180,25 @@ impl App {
             ip: String,
             layers: String,
             is_selected: bool,
+            num_rounds: u32,
+            prefetch_window: u32,
         }
 
         let mut devices_info = Vec::new();
 
         for (i, device) in topology.devices.iter().enumerate() {
-            let angle = 2.0 * PI * (i as f64) / (num_devices as f64) - PI / 2.0; // Start from top
+            let angle = 2.0 * PI * (i as f64) / (num_devices as f64) - PI / 2.0;
             let x = center_x + radius * angle.cos();
             let y = center_y + radius * angle.sin();
+
+            // assignment info
+            let Some(assignment) = topology
+                .assignments
+                .iter()
+                .find(|a| a.service.starts_with(&device.instance))
+            else {
+                continue;
+            };
 
             // Get full device name (remove "shard-" prefix)
             let full_name = device
@@ -200,15 +211,13 @@ impl App {
             let short_name = self.get_sliding_text(&full_name, 30);
 
             // Get IP and GRPC port
-            let ip = format!("{}:{}", device.local_ip, device.shard_port);
+            let ip = format!(
+                "{}:{} ({})",
+                device.local_ip, device.shard_port, device.server_port
+            );
 
             // Get layer assignments
-            let layers = topology
-                .assignments
-                .iter()
-                .find(|a| a.service == device.instance)
-                .map(|a| TopologyResponse::format_layers(&a.layers))
-                .unwrap_or_else(|| "[]".to_string());
+            let layers = TopologyResponse::format_layers(&assignment.layers);
 
             let is_selected = i == self.selected_device;
 
@@ -219,6 +228,8 @@ impl App {
                 ip,
                 layers,
                 is_selected,
+                num_rounds: assignment.layers.len() as u32,
+                prefetch_window: assignment.prefetch_window,
             });
         }
 
@@ -227,12 +238,15 @@ impl App {
             .iter()
             .map(|d| {
                 (
+                    // TODO: clone with `.clone()`
                     d.x,
                     d.y,
                     d.name.clone(),
                     d.ip.clone(),
                     d.layers.clone(),
                     d.is_selected,
+                    d.num_rounds,
+                    d.prefetch_window,
                 )
             })
             .collect::<Vec<_>>();
@@ -258,9 +272,9 @@ impl App {
 
                 // Draw connection lines between devices
                 for i in 0..devices_clone.len() {
-                    let (x1, y1, _, _, _, _) = devices_clone[i];
+                    let (x1, y1, _, _, _, _, _, _) = devices_clone[i];
                     let next_i = (i + 1) % devices_clone.len();
-                    let (x2, y2, _, _, _, _) = devices_clone[next_i];
+                    let (x2, y2, _, _, _, _, _, _) = devices_clone[next_i];
 
                     ctx.draw(&CanvasLine {
                         x1,
@@ -272,7 +286,9 @@ impl App {
                 }
 
                 // Draw devices with their info
-                for (x, y, name, ip, layers, is_selected) in devices_clone.iter() {
+                for (x, y, name, ip, layers, is_selected, num_rounds, prefetch_window) in
+                    devices_clone.iter()
+                {
                     // Draw device point with larger size if selected
                     let color = if *is_selected {
                         Color::Yellow
@@ -305,16 +321,20 @@ impl App {
                     let text_x = x + text_offset * angle.cos();
                     let text_y = y + text_offset * angle.sin();
 
-                    // Draw device info: name, IP, layers (each on a separate line)
+                    // Draw device info: name, IP, layers, rounds/window (each on a separate line)
                     // Highlight text in yellow if selected
+                    let rounds_window_text =
+                        format!("Rounds: {}, Window: {}", num_rounds, prefetch_window);
                     if *is_selected {
-                        ctx.print(text_x, text_y + 3.0, name.clone().yellow());
-                        ctx.print(text_x, text_y, ip.clone().yellow());
-                        ctx.print(text_x, text_y - 3.0, layers.clone().yellow());
+                        ctx.print(text_x, text_y + 4.5, name.clone().yellow());
+                        ctx.print(text_x, text_y + 1.2, ip.clone().yellow());
+                        ctx.print(text_x, text_y - 1.2, layers.clone().yellow());
+                        ctx.print(text_x, text_y - 4.5, rounds_window_text.yellow());
                     } else {
-                        ctx.print(text_x, text_y + 3.0, name.clone());
-                        ctx.print(text_x, text_y, ip.clone());
-                        ctx.print(text_x, text_y - 3.0, layers.clone());
+                        ctx.print(text_x, text_y + 4.5, name.clone());
+                        ctx.print(text_x, text_y + 1.2, ip.clone());
+                        ctx.print(text_x, text_y - 1.2, layers.clone());
+                        ctx.print(text_x, text_y - 4.5, rounds_window_text);
                     }
                 }
             });

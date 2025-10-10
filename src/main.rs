@@ -1,11 +1,15 @@
 mod app;
+/// Configurations & settings.
 mod config;
+/// Menu interface.
 mod menu;
+/// Loading models & prepaing.
+mod model;
 mod settings;
 mod shard;
 mod topology;
 
-use app::{App, AppState};
+use app::{App, AppState, LoadModelState, UnloadModelState};
 use color_eyre::Result;
 use crossterm::event::{Event, KeyEvent, KeyEventKind};
 use futures::{FutureExt, StreamExt};
@@ -30,12 +34,55 @@ impl App {
         let mut interval = tokio::time::interval(Duration::from_millis(16));
 
         while self.running {
+            terminal.draw(|frame| self.draw(frame))?;
+
             // Check if we need to load topology
             if self.state.is_loading_topology() {
                 self.state.load_topology(&self.config.api_url()).await;
             }
 
-            terminal.draw(|frame| self.draw(frame))?;
+            // Check if we need to prepare topology for model loading
+            if let AppState::LoadModel(LoadModelState::PreparingTopology(model)) =
+                &self.state.clone()
+            {
+                match LoadModelState::prepare_topology(&self.config.api_url(), model).await {
+                    Ok(topology) => {
+                        // Move to loading model state and trigger load
+                        let model_name = model.clone();
+                        self.state = AppState::LoadModel(LoadModelState::LoadingModel(model_name));
+
+                        // Immediately try to load the model
+                        match LoadModelState::load_model(&self.config.api_url(), &topology).await {
+                            Ok(response) => {
+                                self.state = AppState::LoadModel(LoadModelState::Success(response));
+                            }
+                            Err(err) => {
+                                self.state =
+                                    AppState::LoadModel(LoadModelState::Error(err.to_string()));
+                            }
+                        }
+                    }
+                    Err(err) => {
+                        self.state = AppState::LoadModel(LoadModelState::Error(err.to_string()));
+                    }
+                }
+            }
+
+            // Check if we need to unload model
+            if matches!(
+                &self.state,
+                AppState::UnloadModel(UnloadModelState::Unloading)
+            ) {
+                match UnloadModelState::unload_model(&self.config.api_url()).await {
+                    Ok(_) => {
+                        self.state = AppState::UnloadModel(UnloadModelState::Success);
+                    }
+                    Err(err) => {
+                        self.state =
+                            AppState::UnloadModel(UnloadModelState::Error(err.to_string()));
+                    }
+                }
+            }
 
             // Handle events with timeout to allow animation updates
             tokio::select! {
@@ -57,6 +104,8 @@ impl App {
             AppState::Settings => self.draw_settings(frame),
             AppState::TopologyView(state) => self.draw_topology(frame, &state),
             AppState::ShardView(device) => self.draw_shard_interaction(frame, &device),
+            AppState::LoadModel(state) => self.draw_load_model(frame, &state),
+            AppState::UnloadModel(state) => self.draw_unload_model(frame, &state),
         }
     }
 
@@ -77,11 +126,13 @@ impl App {
 
     /// Handles the key events and updates the state of [`App`].
     fn on_key_event(&mut self, key: KeyEvent) {
-        match &self.state {
+        match &self.state.clone() {
             AppState::Menu => self.handle_menu_input(key),
             AppState::Settings => self.handle_settings_input(key),
             AppState::TopologyView(_) => self.handle_topology_input(key),
             AppState::ShardView(_) => self.handle_shard_interaction_input(key),
+            AppState::LoadModel(state) => self.handle_load_model_input(key, state),
+            AppState::UnloadModel(state) => self.handle_unload_model_input(key, state),
         }
     }
 }

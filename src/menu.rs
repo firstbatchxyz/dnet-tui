@@ -1,3 +1,5 @@
+use std::env;
+
 use crate::app::{App, AppState};
 use crate::topology::TopologyState;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
@@ -11,8 +13,10 @@ use ratatui::{
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum MenuItem {
-    ViewDevices,
+    // ViewDevices, // TODO: add
     ViewTopology,
+    LoadModel,
+    UnloadModel,
     Settings,
     Exit,
 }
@@ -25,8 +29,10 @@ impl MenuItem {
 
     pub fn all() -> Vec<MenuItem> {
         vec![
-            MenuItem::ViewDevices,
+            // MenuItem::ViewDevices,
             MenuItem::ViewTopology,
+            MenuItem::LoadModel,
+            MenuItem::UnloadModel,
             MenuItem::Settings,
             MenuItem::Exit,
         ]
@@ -34,8 +40,10 @@ impl MenuItem {
 
     pub fn label(&self) -> &str {
         match self {
-            MenuItem::ViewDevices => "View Devices",
+            // MenuItem::ViewDevices => "View Devices",
             MenuItem::ViewTopology => "View Topology",
+            MenuItem::LoadModel => "Load Model",
+            MenuItem::UnloadModel => "Unload Model",
             MenuItem::Settings => "Settings",
             MenuItem::Exit => "Exit",
         }
@@ -43,8 +51,10 @@ impl MenuItem {
 
     pub fn description(&self) -> &str {
         match self {
-            MenuItem::ViewDevices => "View discovered devices",
+            // MenuItem::ViewDevices => "View discovered devices",
             MenuItem::ViewTopology => "View dnet topology",
+            MenuItem::LoadModel => "Prepare & load a model",
+            MenuItem::UnloadModel => "Unload current model",
             MenuItem::Settings => "Edit configuration",
             MenuItem::Exit => "Quit application",
         }
@@ -69,14 +79,6 @@ impl App {
     pub fn draw_menu(&mut self, frame: &mut Frame) {
         let area = frame.area();
 
-        // Create layout
-        let vertical = Layout::vertical([
-            Constraint::Length(11), // ASCII art (no border)
-            Constraint::Min(0),     // Menu
-            Constraint::Length(1),  // Footer (no border)
-        ]);
-        let [art_area, menu_area, footer_area] = vertical.areas(area);
-
         // ASCII Art
         #[rustfmt::skip]
         let ascii_art = vec![
@@ -93,7 +95,16 @@ impl App {
           Line::from("    00000    0000000     00000     00000 0     000000      000        00000  "),
           Line::from(" 0000000   00000       0000000    00000000  000000000    000        0000000  "),
           Line::from("                                                                             "),
+          Line::from(format!("                             v{:<5}                                            ", env!("CARGO_PKG_VERSION"))),
         ];
+
+        // Create layout
+        let vertical = Layout::vertical([
+            Constraint::Length(ascii_art.len() as u16), // ASCII art
+            Constraint::Min(0),                         // Menu
+            Constraint::Length(1),                      // Footer
+        ]);
+        let [art_area, menu_area, footer_area] = vertical.areas(area);
 
         frame.render_widget(Paragraph::new(ascii_art).centered(), art_area);
 
@@ -139,7 +150,7 @@ impl App {
         // render menu items
         frame.render_widget(List::new(menu_items), centered_menu_area);
 
-        // Footer - no border, gray text
+        // Footer
         let footer_text = format!("API: {}  |  Press Esc or q to quit", self.config.api_url());
         frame.render_widget(
             Paragraph::new(footer_text)
@@ -174,16 +185,24 @@ impl App {
     }
 
     fn select_menu_item(&mut self) {
-        let selected = MenuItem::all()[self.selected_menu];
-        match selected {
-            MenuItem::ViewDevices => {
-                // TODO: Implement devices view
-            }
+        match MenuItem::all()[self.selected_menu] {
+            // MenuItem::ViewDevices => {
+            //     // TODO: Implement devices view
+            // }
             MenuItem::ViewTopology => {
                 self.state = AppState::TopologyView(TopologyState::Loading);
                 self.selected_device = 0;
                 // Trigger async topology fetch
                 // Note: We'll need to handle this in the main loop
+            }
+            MenuItem::LoadModel => {
+                self.state = AppState::LoadModel(crate::app::LoadModelState::SelectingModel);
+                self.selected_model = 0;
+                self.status_message.clear();
+            }
+            MenuItem::UnloadModel => {
+                self.state = AppState::UnloadModel(crate::app::UnloadModelState::Unloading);
+                self.status_message.clear();
             }
             MenuItem::Settings => {
                 self.state = AppState::Settings;

@@ -32,7 +32,7 @@ impl App {
 
         // Title
         let title = Line::from("Settings").bold().blue().centered();
-        frame.render_widget(Paragraph::new(title).block(Block::bordered()), title_area);
+        frame.render_widget(Paragraph::new(title), title_area);
 
         // Settings fields
         // TODO: a better way maybe?

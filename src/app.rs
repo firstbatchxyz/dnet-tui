@@ -5,11 +5,29 @@ use crossterm::event::EventStream;
 use std::time::Instant;
 
 #[derive(Debug, Clone, PartialEq)]
+pub enum LoadModelState {
+    SelectingModel,
+    PreparingTopology(String /* model name */),
+    LoadingModel(String /* model name */),
+    Error(String),
+    Success(crate::model::LoadModelResponse),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum UnloadModelState {
+    Unloading,
+    Error(String),
+    Success,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub enum AppState {
     Menu,
     Settings,
     TopologyView(TopologyState),
     ShardView(String /* shard name */),
+    LoadModel(LoadModelState),
+    UnloadModel(UnloadModelState),
 }
 
 impl AppState {
@@ -51,6 +69,8 @@ pub struct App {
     pub selected_field: SettingsField,
     /// Selected device index in topology view.
     pub selected_device: usize,
+    /// Selected model index in load model view.
+    pub selected_model: usize,
     /// Input buffer for editing.
     pub input_buffer: String,
     /// Status message.
@@ -72,6 +92,7 @@ impl App {
             selected_menu: 0,
             selected_field: SettingsField::Host,
             selected_device: 0,
+            selected_model: 0,
             input_buffer: String::new(),
             status_message: String::new(),
             animation_start: Instant::now(),
