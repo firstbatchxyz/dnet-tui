@@ -1,4 +1,5 @@
-use crate::app::{App, AppState, TopologyState};
+use crate::app::{App, AppState};
+use crate::topology::TopologyState;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{
     Frame,
@@ -17,6 +18,11 @@ pub enum MenuItem {
 }
 
 impl MenuItem {
+    /// Formats a menu item for display.
+    pub fn fmt(&self) -> String {
+        format!("{:<15}: {}", self.label(), self.description())
+    }
+
     pub fn all() -> Vec<MenuItem> {
         vec![
             MenuItem::ViewDevices,
@@ -37,11 +43,25 @@ impl MenuItem {
 
     pub fn description(&self) -> &str {
         match self {
-            MenuItem::ViewDevices => "Call /v1/devices",
-            MenuItem::ViewTopology => "Call /v1/topology",
+            MenuItem::ViewDevices => "View discovered devices",
+            MenuItem::ViewTopology => "View dnet topology",
             MenuItem::Settings => "Edit configuration",
             MenuItem::Exit => "Quit application",
         }
+    }
+
+    /// The total height of the menu when fully rendered.
+    pub fn total_height() -> u16 {
+        Self::all().len() as u16
+    }
+
+    /// The total width of the menu when fully rendered.
+    pub fn total_width() -> u16 {
+        Self::all()
+            .iter()
+            .map(|item| item.fmt().len() as u16)
+            .max()
+            .unwrap_or(0)
     }
 }
 
@@ -82,7 +102,7 @@ impl App {
             .iter()
             .enumerate()
             .map(|(i, item)| {
-                let content = format!("  {}  -  {}", item.label(), item.description());
+                // decide style based on selection
                 let style = if i == self.selected_menu {
                     Style::default()
                         .fg(Color::Black)
@@ -91,26 +111,33 @@ impl App {
                 } else {
                     Style::default()
                 };
-                ListItem::new(content).style(style)
+
+                ListItem::new(item.fmt()).style(style)
             })
             .collect();
 
         // Calculate vertical centering for menu
-        let menu_height = menu_items.len() as u16;
-        let available_height = menu_area.height;
-        let top_padding = (available_height.saturating_sub(menu_height)) / 2;
-
-        // Create centered area for menu
-        let centered_vertical = Layout::vertical([
+        let menu_height = MenuItem::total_height();
+        let top_padding = (menu_area.height.saturating_sub(menu_height)) / 2;
+        let [_, vertical_centered_area, _] = Layout::vertical([
             Constraint::Length(top_padding),
             Constraint::Length(menu_height),
             Constraint::Min(0),
-        ]);
-        let [_, centered_menu_area, _] = centered_vertical.areas(menu_area);
+        ])
+        .areas(menu_area);
 
-        let menu_list = List::new(menu_items);
+        // Calculate horizontal centering for menu
+        let menu_width = MenuItem::total_width();
+        let left_padding = (vertical_centered_area.width.saturating_sub(menu_width)) / 2;
+        let [_, centered_menu_area, _] = Layout::horizontal([
+            Constraint::Length(left_padding),
+            Constraint::Length(menu_width),
+            Constraint::Min(0),
+        ])
+        .areas(vertical_centered_area);
 
-        frame.render_widget(menu_list, centered_menu_area);
+        // render menu items
+        frame.render_widget(List::new(menu_items), centered_menu_area);
 
         // Footer - no border, gray text
         let footer_text = format!("API: {}  |  Press Esc or q to quit", self.config.api_url());
@@ -153,7 +180,7 @@ impl App {
                 // TODO: Implement devices view
             }
             MenuItem::ViewTopology => {
-                self.state = AppState::Topology(TopologyState::Loading);
+                self.state = AppState::TopologyView(TopologyState::Loading);
                 self.selected_device = 0;
                 // Trigger async topology fetch
                 // Note: We'll need to handle this in the main loop

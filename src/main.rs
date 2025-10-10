@@ -2,15 +2,15 @@ mod app;
 mod config;
 mod menu;
 mod settings;
+mod shard;
 mod topology;
 
-use app::{App, AppState, TopologyState};
+use app::{App, AppState};
 use color_eyre::Result;
 use crossterm::event::{Event, KeyEvent, KeyEventKind};
 use futures::{FutureExt, StreamExt};
 use ratatui::{DefaultTerminal, Frame};
 use std::time::Duration;
-use topology::TopologyResponse;
 
 #[tokio::main]
 async fn main() -> color_eyre::Result<()> {
@@ -31,16 +31,8 @@ impl App {
 
         while self.running {
             // Check if we need to load topology
-            if matches!(self.state, AppState::Topology(TopologyState::Loading)) {
-                let api_url = self.config.api_url();
-                match TopologyResponse::fetch(&api_url).await {
-                    Ok(topology) => {
-                        self.state = AppState::Topology(TopologyState::Loaded(topology));
-                    }
-                    Err(e) => {
-                        self.state = AppState::Topology(TopologyState::Error(e.to_string()));
-                    }
-                }
+            if self.state.is_loading_topology() {
+                self.state.load_topology(&self.config.api_url()).await;
             }
 
             terminal.draw(|frame| self.draw(frame))?;
@@ -63,8 +55,8 @@ impl App {
         match self.state.clone() {
             AppState::Menu => self.draw_menu(frame),
             AppState::Settings => self.draw_settings(frame),
-            AppState::Topology(state) => self.draw_topology(frame, &state),
-            AppState::ShardInteraction(device) => self.draw_shard_interaction(frame, &device),
+            AppState::TopologyView(state) => self.draw_topology(frame, &state),
+            AppState::ShardView(device) => self.draw_shard_interaction(frame, &device),
         }
     }
 
@@ -88,8 +80,8 @@ impl App {
         match &self.state {
             AppState::Menu => self.handle_menu_input(key),
             AppState::Settings => self.handle_settings_input(key),
-            AppState::Topology(_) => self.handle_topology_input(key),
-            AppState::ShardInteraction(_) => self.handle_shard_interaction_input(key),
+            AppState::TopologyView(_) => self.handle_topology_input(key),
+            AppState::ShardView(_) => self.handle_shard_interaction_input(key),
         }
     }
 }

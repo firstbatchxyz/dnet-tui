@@ -1,4 +1,4 @@
-use crate::app::{App, AppState, TopologyState};
+use crate::app::{App, AppState};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{
     Frame,
@@ -13,6 +13,23 @@ use ratatui::{
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum TopologyState {
+    Loading,
+    Loaded(TopologyResponse),
+    Error(String),
+}
+
+impl TopologyState {
+    /// Fetch topology from the API
+    pub async fn fetch(api_url: &str) -> color_eyre::Result<TopologyResponse> {
+        let url = format!("{}/v1/topology", api_url);
+        let response = reqwest::get(&url).await?;
+        let topology: TopologyResponse = response.json().await?;
+        Ok(topology)
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TopologyResponse {
@@ -60,14 +77,6 @@ pub struct SolutionSets {
 }
 
 impl TopologyResponse {
-    /// Fetch topology from the API
-    pub async fn fetch(api_url: &str) -> color_eyre::Result<Self> {
-        let url = format!("{}/v1/topology", api_url);
-        let response = reqwest::get(&url).await?;
-        let topology: TopologyResponse = response.json().await?;
-        Ok(topology)
-    }
-
     /// Get device short name (extract first part before dots)
     pub fn device_short_name(device: &str) -> String {
         device.split('.').next().unwrap_or(device).to_string()
@@ -136,12 +145,7 @@ impl App {
             }
             _ => "Press Esc to go back",
         };
-        frame.render_widget(
-            Paragraph::new(footer_text)
-                .block(Block::bordered())
-                .centered(),
-            footer_area,
-        );
+        frame.render_widget(Paragraph::new(footer_text).centered(), footer_area);
     }
 
     pub fn draw_topology_ring(
@@ -381,7 +385,7 @@ impl App {
         match (key.modifiers, key.code) {
             (_, KeyCode::Esc) => {
                 // Go back to topology view - restore the topology state
-                if let AppState::ShardInteraction(_) = &self.state {
+                if let AppState::ShardView(_) = &self.state {
                     // We need to restore the topology - for now go back to menu
                     // TODO: Keep topology state when entering shard interaction
                     self.state = AppState::Menu;
@@ -393,7 +397,7 @@ impl App {
     }
 
     fn topology_device_up(&mut self) {
-        if let AppState::Topology(TopologyState::Loaded(topology)) = &self.state {
+        if let AppState::TopologyView(TopologyState::Loaded(topology)) = &self.state {
             let device_count = topology.devices.len();
             if device_count > 0 {
                 // Cycle: if at 0, wrap to last device
@@ -407,7 +411,7 @@ impl App {
     }
 
     fn topology_device_down(&mut self) {
-        if let AppState::Topology(TopologyState::Loaded(topology)) = &self.state {
+        if let AppState::TopologyView(TopologyState::Loaded(topology)) = &self.state {
             let device_count = topology.devices.len();
             if device_count > 0 {
                 // Cycle: if at last, wrap to 0
@@ -417,9 +421,9 @@ impl App {
     }
 
     fn open_shard_interaction(&mut self) {
-        if let AppState::Topology(TopologyState::Loaded(topology)) = &self.state {
+        if let AppState::TopologyView(TopologyState::Loaded(topology)) = &self.state {
             if let Some(device) = topology.devices.get(self.selected_device) {
-                self.state = AppState::ShardInteraction(device.instance.clone());
+                self.state = AppState::ShardView(device.instance.clone());
             }
         }
     }
@@ -433,9 +437,8 @@ mod tests {
     #[ignore = "run manually"]
     async fn test_fetch_topology() {
         let api_url = "http://localhost:8080";
-        let topology = TopologyResponse::fetch(api_url).await;
-        assert!(topology.is_ok());
-        let topology = topology.unwrap();
+        let topology = TopologyState::fetch(api_url).await;
         println!("{:#?}", topology);
+        assert!(topology.is_ok());
     }
 }

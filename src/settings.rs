@@ -1,4 +1,4 @@
-use crate::app::{App, AppState, SettingsField};
+use crate::app::{App, AppState};
 use crate::config::Config;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{
@@ -9,6 +9,15 @@ use ratatui::{
     widgets::{Block, Paragraph},
 };
 
+/// Possible settings fields.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum SettingsField {
+    /// API Host.
+    Host,
+    /// API Port.
+    Port,
+}
+
 impl App {
     pub fn draw_settings(&mut self, frame: &mut Frame) {
         let area = frame.area();
@@ -17,16 +26,21 @@ impl App {
         let vertical = Layout::vertical([
             Constraint::Length(3), // Title
             Constraint::Min(0),    // Settings fields
-            Constraint::Length(3), // Status
             Constraint::Length(3), // Footer
         ]);
-        let [title_area, settings_area, status_area, footer_area] = vertical.areas(area);
+        let [title_area, settings_area, footer_area] = vertical.areas(area);
 
         // Title
         let title = Line::from("Settings").bold().blue().centered();
         frame.render_widget(Paragraph::new(title).block(Block::bordered()), title_area);
 
         // Settings fields
+        // TODO: a better way maybe?
+        let is_editing_host =
+            matches!(self.selected_field, SettingsField::Host) && !self.input_buffer.is_empty();
+        let is_editing_port =
+            matches!(self.selected_field, SettingsField::Port) && !self.input_buffer.is_empty();
+
         let host_style = if matches!(self.selected_field, SettingsField::Host) {
             Style::default()
                 .fg(Color::Yellow)
@@ -43,16 +57,29 @@ impl App {
             Style::default()
         };
 
-        let settings_text = vec![
+        // Show input_buffer if editing, otherwise show temp_config value
+        let host_value = if is_editing_host {
+            format!("{}_", self.input_buffer) // Add cursor
+        } else {
+            self.temp_config.api_host.clone()
+        };
+
+        let port_value = if is_editing_port {
+            format!("{}_", self.input_buffer) // Add cursor
+        } else {
+            self.temp_config.api_port.to_string()
+        };
+
+        let mut settings_text = vec![
             Line::from(""),
             Line::from(vec![
                 "  API Host: ".into(),
-                self.temp_config.api_host.clone().set_style(host_style),
+                host_value.set_style(host_style),
             ]),
             Line::from(""),
             Line::from(vec![
                 "  API Port: ".into(),
-                self.temp_config.api_port.to_string().set_style(port_style),
+                port_value.set_style(port_style),
             ]),
             Line::from(""),
             Line::from(vec![
@@ -61,35 +88,21 @@ impl App {
             ]),
         ];
 
+        // Add status message below the current config line if present
+        if !self.status_message.is_empty() {
+            settings_text.push(Line::from(""));
+            settings_text.push(Line::from(format!("  {}", self.status_message)).green());
+        }
+
         frame.render_widget(
             Paragraph::new(settings_text)
-                .block(Block::bordered().title("Use ↑↓ to select field, Enter to edit, s to save")),
+                .block(Block::default().title("Use ↑↓ to select field, Enter to edit, s to save")),
             settings_area,
         );
 
-        // Status message
-        let status_text = if !self.status_message.is_empty() {
-            self.status_message.clone()
-        } else if !self.input_buffer.is_empty() {
-            format!("Editing: {}", self.input_buffer)
-        } else {
-            String::new()
-        };
-
-        frame.render_widget(
-            Paragraph::new(status_text)
-                .block(Block::bordered())
-                .centered(),
-            status_area,
-        );
-
         // Footer
-        frame.render_widget(
-            Paragraph::new("Press Esc to go back  |  Enter to edit field  |  s to save")
-                .block(Block::bordered())
-                .centered(),
-            footer_area,
-        );
+        let footer_text = "Press Esc to go back  |  Enter to edit field  |  s to save";
+        frame.render_widget(Paragraph::new(footer_text).centered(), footer_area);
     }
 
     pub fn handle_settings_input(&mut self, key: KeyEvent) {
@@ -173,7 +186,7 @@ impl App {
             Ok(_) => {
                 self.config = self.temp_config.clone();
                 self.status_message =
-                    format!("Configuration saved to {}", self.temp_config.api_url());
+                    format!("Configuration saved to {}", Config::current_location());
             }
             Err(e) => {
                 self.status_message = format!("Failed to save: {}", e);

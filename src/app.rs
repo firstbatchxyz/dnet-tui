@@ -1,5 +1,6 @@
 use crate::config::Config;
-use crate::topology::TopologyResponse;
+use crate::settings::SettingsField;
+use crate::topology::TopologyState;
 use crossterm::event::EventStream;
 use std::time::Instant;
 
@@ -7,21 +8,29 @@ use std::time::Instant;
 pub enum AppState {
     Menu,
     Settings,
-    Topology(TopologyState),
-    ShardInteraction(String /* shard name */),
+    TopologyView(TopologyState),
+    ShardView(String /* shard name */),
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub enum TopologyState {
-    Loading,
-    Loaded(TopologyResponse),
-    Error(String),
-}
+impl AppState {
+    /// Check if the state is in `Loading` topology state.
+    ///
+    /// This should trigger [`Self::load_topology`] in the main loop.
+    pub fn is_loading_topology(&self) -> bool {
+        matches!(self, Self::TopologyView(TopologyState::Loading))
+    }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum SettingsField {
-    Host,
-    Port,
+    /// Load topology asynchronously and update state.
+    pub async fn load_topology(&mut self, api_url: &str) {
+        match TopologyState::fetch(api_url).await {
+            Ok(topology) => {
+                *self = Self::TopologyView(TopologyState::Loaded(topology));
+            }
+            Err(err) => {
+                *self = Self::TopologyView(TopologyState::Error(err.to_string()));
+            }
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -72,20 +81,22 @@ impl App {
     /// Get sliding window of text based on elapsed time
     pub fn get_sliding_text(&self, full_text: &str, window_size: usize) -> String {
         if full_text.len() <= window_size {
-            return full_text.to_string();
-        }
+            // return full text if it fits
+            full_text.to_string()
+        } else {
+            // calculate offset based on elapsed milliseconds
+            let elapsed_millis = self.animation_start.elapsed().as_millis() as usize;
+            let offset = (elapsed_millis / 500) % full_text.len();
 
-        // Calculate offset based on elapsed milliseconds
-        let elapsed_millis = self.animation_start.elapsed().as_millis() as usize;
-        let offset = (elapsed_millis / 500) % full_text.len();
-
-        // Create sliding window by cycling through the text
-        let mut result = String::new();
-        for i in 0..window_size {
-            let idx = (offset + i) % full_text.len();
-            result.push(full_text.chars().nth(idx).unwrap_or(' '));
+            // create sliding window by cycling through the text
+            // TODO: do this more performant
+            let mut result = String::new();
+            for i in 0..window_size {
+                let idx = (offset + i) % full_text.len();
+                result.push(full_text.chars().nth(idx).unwrap_or(' '));
+            }
+            result
         }
-        result
     }
 
     /// Set running to false to quit the application.
