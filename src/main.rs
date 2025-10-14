@@ -46,13 +46,13 @@ impl App {
                 &self.state.clone()
             {
                 match LoadModelState::prepare_topology(&self.config.api_url(), model).await {
-                    Ok(topology) => {
+                    Ok(_topology) => {
                         // Move to loading model state and trigger load
                         let model_name = model.clone();
-                        self.state = AppState::LoadModel(LoadModelState::LoadingModel(model_name));
+                        self.state = AppState::LoadModel(LoadModelState::LoadingModel(model_name.clone()));
 
-                        // Immediately try to load the model
-                        match LoadModelState::load_model(&self.config.api_url(), &topology).await {
+                        // Load the model - just pass the model name
+                        match LoadModelState::load_model(&self.config.api_url(), Some(&model_name)).await {
                             Ok(response) => {
                                 self.state = AppState::LoadModel(LoadModelState::Success(response));
                             }

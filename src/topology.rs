@@ -41,11 +41,14 @@ pub struct TopologyResponse {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Device {
+    pub is_manager: bool,
+    pub is_busy: bool,
     pub instance: String,
-    pub local_ip: String,
+    pub host: String,
     pub server_port: u16,
     pub shard_port: u16,
-    // FIXME: more info to be deser'ed here
+    pub local_ip: String,
+    pub thunderbolt: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -53,16 +56,22 @@ pub struct Assignment {
     pub service: String,
     pub layers: Vec<Vec<u32>>,
     pub next_service: String,
-    pub prefetch_window: u32,
+    pub window_size: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct Solution {
-    pub w: Vec<u32>,
-    pub n: Vec<u32>,
-    pub k: u32,
-    pub obj_value: f64,
-    pub sets: SolutionSets,
+#[serde(untagged)]
+pub enum Solution {
+    Manual {
+        source: String
+    },
+    Optimized {
+        w: Vec<u32>,
+        n: Vec<u32>,
+        k: u32,
+        obj_value: f64,
+        sets: SolutionSets,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -181,7 +190,7 @@ impl App {
             layers: String,
             is_selected: bool,
             num_rounds: u32,
-            prefetch_window: u32,
+            window_size: u32,
         }
 
         let mut devices_info = Vec::new();
@@ -191,11 +200,11 @@ impl App {
             let x = center_x + radius * angle.cos();
             let y = center_y + radius * angle.sin();
 
-            // assignment info
+            // assignment info - match by checking if service contains the device instance
             let Some(assignment) = topology
                 .assignments
                 .iter()
-                .find(|a| a.service.starts_with(&device.instance))
+                .find(|a| a.service.contains(&device.instance))
             else {
                 continue;
             };
@@ -229,7 +238,7 @@ impl App {
                 layers,
                 is_selected,
                 num_rounds: assignment.layers.len() as u32,
-                prefetch_window: assignment.prefetch_window,
+                window_size: assignment.window_size,
             });
         }
 
@@ -246,7 +255,7 @@ impl App {
                     d.layers.clone(),
                     d.is_selected,
                     d.num_rounds,
-                    d.prefetch_window,
+                    d.window_size,
                 )
             })
             .collect::<Vec<_>>();
@@ -286,7 +295,7 @@ impl App {
                 }
 
                 // Draw devices with their info
-                for (x, y, name, ip, layers, is_selected, num_rounds, prefetch_window) in
+                for (x, y, name, ip, layers, is_selected, num_rounds, window_size) in
                     devices_clone.iter()
                 {
                     // Draw device point with larger size if selected
@@ -324,7 +333,7 @@ impl App {
                     // Draw device info: name, IP, layers, rounds/window (each on a separate line)
                     // Highlight text in yellow if selected
                     let rounds_window_text =
-                        format!("Rounds: {}, Window: {}", num_rounds, prefetch_window);
+                        format!("Rounds: {}, Window: {}", num_rounds, window_size);
                     if *is_selected {
                         ctx.print(text_x, text_y + 4.5, name.clone().yellow());
                         ctx.print(text_x, text_y + 1.2, ip.clone().yellow());

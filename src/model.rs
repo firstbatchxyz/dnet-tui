@@ -278,15 +278,22 @@ impl LoadModelState {
         Ok(topology)
     }
 
-    /// Load model by calling the API with the topology
+    /// Load model by calling the API with just the model name
     pub async fn load_model(
         api_url: &str,
-        topology: &TopologyResponse,
+        model: Option<&str>,
     ) -> color_eyre::Result<LoadModelResponse> {
         let url = format!("{}/v1/load_model", api_url);
         let client = reqwest::Client::new();
 
-        let response = client.post(&url).json(topology).send().await?;
+        // Create request body - either empty {} or {"model": "model_name"}
+        let body = if let Some(model_name) = model {
+            serde_json::json!({"model": model_name})
+        } else {
+            serde_json::json!({})
+        };
+
+        let response = client.post(&url).json(&body).send().await?;
 
         // Check if response is successful
         if response.status().is_success() {
