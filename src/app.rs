@@ -1,8 +1,10 @@
+use crate::chat::ChatState;
 use crate::config::Config;
 use crate::settings::SettingsField;
 use crate::topology::TopologyState;
 use crossterm::event::EventStream;
 use std::time::Instant;
+use tokio::sync::mpsc;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum LoadModelState {
@@ -28,6 +30,8 @@ pub enum AppState {
     ShardView(String /* shard name */),
     LoadModel(LoadModelState),
     UnloadModel(UnloadModelState),
+    Developer(crate::developer::DeveloperState),
+    Chat(ChatState),
 }
 
 impl AppState {
@@ -71,12 +75,20 @@ pub struct App {
     pub selected_device: usize,
     /// Selected model index in load model view.
     pub selected_model: usize,
+    /// Selected developer menu index.
+    pub developer_menu_index: usize,
     /// Input buffer for editing.
     pub input_buffer: String,
     /// Status message.
     pub status_message: String,
     /// Animation start time for sliding text.
     pub animation_start: Instant,
+    /// Pending chat message to send
+    pub pending_chat_message: Option<String>,
+    /// Chat message receiver for streaming responses
+    pub chat_stream_rx: Option<mpsc::UnboundedReceiver<String>>,
+    /// Whether a model is currently loaded
+    pub model_loaded: bool,
 }
 
 impl App {
@@ -93,9 +105,13 @@ impl App {
             selected_field: SettingsField::Host,
             selected_device: 0,
             selected_model: 0,
+            developer_menu_index: 0,
             input_buffer: String::new(),
             status_message: String::new(),
             animation_start: Instant::now(),
+            pending_chat_message: None,
+            chat_stream_rx: None,
+            model_loaded: false,
         })
     }
 

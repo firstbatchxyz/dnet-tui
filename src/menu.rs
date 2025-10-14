@@ -14,26 +14,30 @@ use ratatui::{
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum MenuItem {
     // ViewDevices, // TODO: add
+    Chat,
     ViewTopology,
     LoadModel,
     UnloadModel,
     Settings,
+    Developer,
     Exit,
 }
 
 impl MenuItem {
     /// Formats a menu item for display.
-    pub fn fmt(&self) -> String {
-        format!("{:<15}: {}", self.label(), self.description())
+    pub fn fmt(&self, model_loaded: bool) -> String {
+        format!("{:<15}: {}", self.label(), self.description(model_loaded))
     }
 
     pub fn all() -> Vec<MenuItem> {
         vec![
             // MenuItem::ViewDevices,
+            MenuItem::Chat,
             MenuItem::ViewTopology,
             MenuItem::LoadModel,
             MenuItem::UnloadModel,
             MenuItem::Settings,
+            MenuItem::Developer,
             MenuItem::Exit,
         ]
     }
@@ -41,21 +45,25 @@ impl MenuItem {
     pub fn label(&self) -> &str {
         match self {
             // MenuItem::ViewDevices => "View Devices",
+            MenuItem::Chat => "Chat",
             MenuItem::ViewTopology => "View Topology",
             MenuItem::LoadModel => "Load Model",
             MenuItem::UnloadModel => "Unload Model",
             MenuItem::Settings => "Settings",
+            MenuItem::Developer => "Developer",
             MenuItem::Exit => "Exit",
         }
     }
 
-    pub fn description(&self) -> &str {
+    pub fn description(&self, model_loaded: bool) -> &str {
         match self {
             // MenuItem::ViewDevices => "View discovered devices",
+            MenuItem::Chat => if model_loaded { "Chat with loaded model" } else { "Chat (no model loaded)" },
             MenuItem::ViewTopology => "View dnet topology",
             MenuItem::LoadModel => "Prepare & load a model",
             MenuItem::UnloadModel => "Unload current model",
             MenuItem::Settings => "Edit configuration",
+            MenuItem::Developer => "Advanced developer tools",
             MenuItem::Exit => "Quit application",
         }
     }
@@ -66,10 +74,10 @@ impl MenuItem {
     }
 
     /// The total width of the menu when fully rendered.
-    pub fn total_width() -> u16 {
+    pub fn total_width(model_loaded: bool) -> u16 {
         Self::all()
             .iter()
-            .map(|item| item.fmt().len() as u16)
+            .map(|item| item.fmt(model_loaded).len() as u16)
             .max()
             .unwrap_or(0)
     }
@@ -95,6 +103,11 @@ impl App {
           Line::from("    00000    0000000     00000     00000 0     000000      000        00000  "),
           Line::from(" 0000000   00000       0000000    00000000  000000000    000        0000000  "),
           Line::from("                                                                             "),
+          Line::from(""),
+          Line::from("    ⢠⠀⠀⣠⣤⠐⣦⡀⠀⠴⠢⣤⣄⠀⢀⠄⠀⠀⢠⣶⠂⠀⢐⠆⢀⡤⢠⣤⠂⢤"),
+          Line::from("    ⠇⠀⣰⡟⠀⢠⣿⠁⠀⠀⠌⢹⣿⢀⠎⠀⡄⢠⣿⠃⡴⠀⠀⠀⠊⢀⣾⠃⠀⠁"),
+          Line::from("    ⢀⣰⡟⢀⡴⠟⠁⠀⢀⠈⠀⠘⣿⠏⠀⠀⣰⣿⡁⢀⡰⠀⠀⠀⣠⣿⠃⠀⠀⠀"),
+          Line::from(""),
           Line::from(format!("                             v{:<5}                                            ", env!("CARGO_PKG_VERSION"))),
         ];
 
@@ -113,17 +126,29 @@ impl App {
             .iter()
             .enumerate()
             .map(|(i, item)| {
-                // decide style based on selection
+                // decide style based on selection and availability
+                let is_chat = matches!(item, MenuItem::Chat);
+                let is_disabled = is_chat && !self.model_loaded;
+
                 let style = if i == self.selected_menu {
-                    Style::default()
-                        .fg(Color::Black)
-                        .bg(Color::Cyan)
-                        .add_modifier(Modifier::BOLD)
+                    if is_disabled {
+                        Style::default()
+                            .fg(Color::DarkGray)
+                            .bg(Color::Gray)
+                            .add_modifier(Modifier::BOLD)
+                    } else {
+                        Style::default()
+                            .fg(Color::Black)
+                            .bg(Color::Cyan)
+                            .add_modifier(Modifier::BOLD)
+                    }
+                } else if is_disabled {
+                    Style::default().fg(Color::DarkGray)
                 } else {
                     Style::default()
                 };
 
-                ListItem::new(item.fmt()).style(style)
+                ListItem::new(item.fmt(self.model_loaded)).style(style)
             })
             .collect();
 
@@ -138,7 +163,7 @@ impl App {
         .areas(menu_area);
 
         // Calculate horizontal centering for menu
-        let menu_width = MenuItem::total_width();
+        let menu_width = MenuItem::total_width(self.model_loaded);
         let left_padding = (vertical_centered_area.width.saturating_sub(menu_width)) / 2;
         let [_, centered_menu_area, _] = Layout::horizontal([
             Constraint::Length(left_padding),
@@ -189,6 +214,12 @@ impl App {
             // MenuItem::ViewDevices => {
             //     // TODO: Implement devices view
             // }
+            MenuItem::Chat => {
+                if self.model_loaded {
+                    self.state = AppState::Chat(crate::chat::ChatState::new());
+                }
+                // If model not loaded, do nothing (item is disabled)
+            }
             MenuItem::ViewTopology => {
                 self.state = AppState::TopologyView(TopologyState::Loading);
                 self.selected_device = 0;
@@ -208,6 +239,10 @@ impl App {
                 self.state = AppState::Settings;
                 self.temp_config = self.config.clone();
                 self.status_message.clear();
+            }
+            MenuItem::Developer => {
+                self.state = AppState::Developer(crate::developer::DeveloperState::Menu);
+                self.developer_menu_index = 0;
             }
             MenuItem::Exit => self.quit(),
         }
