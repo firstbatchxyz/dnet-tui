@@ -20,6 +20,7 @@ pub enum ChatState {
         is_generating: bool,
         current_response: String,
         scroll_offset: usize,
+        max_tokens: u32,
     },
     Error(String),
 }
@@ -88,6 +89,7 @@ impl ChatState {
             is_generating: false,
             current_response: String::new(),
             scroll_offset: 0,
+            max_tokens: 2000,
         }
     }
 }
@@ -104,8 +106,16 @@ impl App {
         ]);
         let [title_area, messages_area, input_area, footer_area] = vertical.areas(area);
 
-        // Title
-        let title = Line::from("Chat with Model").bold().cyan().centered();
+        // Title with max tokens info
+        let title = match state {
+            ChatState::Active { max_tokens, .. } => {
+                Line::from(format!("Chat with Model (Max Tokens: {})", max_tokens))
+                    .bold()
+                    .cyan()
+                    .centered()
+            }
+            _ => Line::from("Chat with Model").bold().cyan().centered(),
+        };
         frame.render_widget(
             Paragraph::new(title).block(Block::default().borders(Borders::BOTTOM)),
             title_area,
@@ -119,6 +129,7 @@ impl App {
                 is_generating,
                 current_response,
                 scroll_offset,
+                max_tokens: _,
             } => {
                 // Draw messages
                 self.draw_messages(frame, messages_area, messages, current_response, *is_generating, *scroll_offset);
@@ -130,7 +141,7 @@ impl App {
                 let footer_text = if *is_generating {
                     "Generating... | Ctrl+C: Stop generation | Esc: Exit chat"
                 } else {
-                    "Enter: Send | ↑↓: Scroll history | Ctrl+L: Clear | Esc: Exit"
+                    "Enter: Send | ↑↓: Scroll | Ctrl+t: +500 tokens | Ctrl+T: -500 tokens | Ctrl+L: Clear | Esc: Exit"
                 };
                 frame.render_widget(
                     Paragraph::new(footer_text)
@@ -184,16 +195,28 @@ impl App {
                 Span::styled(role_text, role_style),
             ]));
 
-            // Add message content with word wrapping
-            for line in msg.content.lines() {
-                if line.is_empty() {
-                    lines.push(Line::from(""));
-                } else {
-                    // Simple word wrapping
-                    let width = area.width.saturating_sub(4) as usize;
-                    let wrapped = wrap_text(line, width);
-                    for wrapped_line in wrapped {
-                        lines.push(Line::from(wrapped_line));
+            // Add message content with word wrapping and think tag parsing
+            if msg.role == "assistant" {
+                // For assistant messages, parse think tags for the entire content
+                let parsed_spans = parse_think_tags(&msg.content);
+
+                // Now we need to wrap these spans into lines
+                let width = area.width.saturating_sub(4) as usize;
+                let wrapped_lines = wrap_spans(parsed_spans, width);
+                for line in wrapped_lines {
+                    lines.push(line);
+                }
+            } else {
+                // For other messages, just wrap normally
+                for line in msg.content.lines() {
+                    if line.is_empty() {
+                        lines.push(Line::from(""));
+                    } else {
+                        let width = area.width.saturating_sub(4) as usize;
+                        let wrapped = wrap_text(line, width);
+                        for wrapped_line in wrapped {
+                            lines.push(Line::from(wrapped_line));
+                        }
                     }
                 }
             }
@@ -210,10 +233,12 @@ impl App {
                 Span::styled("ASSISTANT", Style::default().fg(Color::Blue).add_modifier(Modifier::BOLD)),
             ]));
 
+            // Parse current response for think tags
+            let parsed_spans = parse_think_tags(current_response);
             let width = area.width.saturating_sub(4) as usize;
-            let wrapped = wrap_text(current_response, width);
-            for wrapped_line in wrapped {
-                lines.push(Line::from(wrapped_line));
+            let wrapped_lines = wrap_spans(parsed_spans, width);
+            for line in wrapped_lines {
+                lines.push(line);
             }
 
             // Add typing indicator if still generating
@@ -226,7 +251,13 @@ impl App {
         let total_lines = lines.len();
         let visible_height = area.height as usize;
         let scroll = if total_lines > visible_height {
-            scroll_offset.min(total_lines.saturating_sub(visible_height))
+            // If scroll_offset is very large (usize::MAX), scroll to bottom
+            // This happens during generation to auto-follow new content
+            if scroll_offset == usize::MAX {
+                total_lines.saturating_sub(visible_height)
+            } else {
+                scroll_offset.min(total_lines.saturating_sub(visible_height))
+            }
         } else {
             0
         };
@@ -313,6 +344,7 @@ impl App {
             is_generating,
             current_response,
             scroll_offset,
+            max_tokens,
         } = state {
             let mut messages = messages.clone();
             let mut input_buffer = input_buffer.clone();
@@ -320,6 +352,7 @@ impl App {
             let is_generating = *is_generating;
             let mut current_response = current_response.clone();
             let mut scroll_offset = *scroll_offset;
+            let mut max_tokens = *max_tokens;
 
             if is_generating {
                 // Allow stopping generation or exiting
@@ -351,6 +384,7 @@ impl App {
                             is_generating: false,
                             current_response,
                             scroll_offset,
+                            max_tokens,
                         });
                         self.chat_stream_rx = None; // Clear the stream
                         return; // Early return to ensure state change takes effect
@@ -375,6 +409,14 @@ impl App {
                             timestamp: chrono::Local::now().format("%H:%M").to_string(),
                         });
                         scroll_offset = 0;
+                    }
+                    (KeyModifiers::CONTROL, KeyCode::Char('t')) => {
+                        // Increase max tokens by 500 (cap at 10000)
+                        max_tokens = (max_tokens + 500).min(10000);
+                    }
+                    (KeyModifiers::CONTROL, KeyCode::Char('T')) => {
+                        // Decrease max tokens by 500 (minimum 100) with Shift+T (uppercase T)
+                        max_tokens = max_tokens.saturating_sub(500).max(100);
                     }
                     (_, KeyCode::Enter) => {
                         if !input_buffer.trim().is_empty() {
@@ -401,6 +443,7 @@ impl App {
                                 is_generating: true,
                                 current_response: String::new(),
                                 scroll_offset,
+                                max_tokens,
                             });
 
                             // Store the message for API call
@@ -471,6 +514,7 @@ impl App {
                         is_generating,
                         current_response,
                         scroll_offset,
+                        max_tokens,
                     });
                 }
             }
@@ -510,11 +554,146 @@ fn wrap_text(text: &str, width: usize) -> Vec<String> {
     lines
 }
 
+// Helper function to wrap styled spans into lines with proper word wrapping
+fn wrap_spans(spans: Vec<Span<'_>>, width: usize) -> Vec<Line<'_>> {
+    let mut lines = Vec::new();
+    let mut current_line = String::new();
+    let mut current_line_spans: Vec<Span> = Vec::new();
+
+    for span in spans {
+        let text = span.content.to_string();
+        let style = span.style;
+
+        // Split by newlines first
+        let parts: Vec<&str> = text.split('\n').collect();
+        for (i, part) in parts.iter().enumerate() {
+            if i > 0 {
+                // We hit a newline, finish current line
+                if !current_line_spans.is_empty() {
+                    lines.push(Line::from(current_line_spans.clone()));
+                    current_line_spans.clear();
+                    current_line.clear();
+                } else if !current_line.is_empty() {
+                    lines.push(Line::from(current_line.clone()));
+                    current_line.clear();
+                }
+            }
+
+            // Now wrap this part if needed
+            if part.is_empty() {
+                continue;
+            }
+
+            // Simple word wrapping for this span part
+            for word in part.split_whitespace() {
+                let word_with_space = if current_line.is_empty() {
+                    word.to_string()
+                } else {
+                    format!(" {}", word)
+                };
+
+                if current_line.len() + word_with_space.len() > width && !current_line.is_empty() {
+                    // Need to wrap
+                    lines.push(Line::from(current_line_spans.clone()));
+                    current_line_spans.clear();
+                    current_line.clear();
+
+                    current_line_spans.push(Span::styled(word.to_string(), style));
+                    current_line = word.to_string();
+                } else {
+                    // Add to current line
+                    current_line_spans.push(Span::styled(word_with_space.clone(), style));
+                    current_line.push_str(&word_with_space);
+                }
+            }
+        }
+    }
+
+    // Add any remaining content
+    if !current_line_spans.is_empty() {
+        lines.push(Line::from(current_line_spans));
+    }
+
+    lines
+}
+
+// Helper function to parse text with <think> tags and return styled spans
+fn parse_think_tags(text: &str) -> Vec<Span<'_>> {
+    let mut spans = Vec::new();
+
+    // Simple regex-like approach: find <think> and </think> tags
+    let mut remaining = text;
+
+    while !remaining.is_empty() {
+        if let Some(think_start) = remaining.find("<think>") {
+            // Add text before <think>
+            if think_start > 0 {
+                let before = &remaining[..think_start];
+                if !before.is_empty() {
+                    spans.push(Span::raw(before.to_string()));
+                }
+            }
+
+            // Find the closing tag
+            remaining = &remaining[think_start + 7..]; // Skip "<think>"
+
+            if let Some(think_end) = remaining.find("</think>") {
+                // Get the content between tags
+                let think_content = &remaining[..think_end];
+                if !think_content.is_empty() {
+                    // Use a lighter gray with dim modifier to simulate transparency
+                    spans.push(Span::styled(
+                        think_content.to_string(),
+                        Style::default()
+                            .fg(Color::Rgb(255, 246, 229))  // #FFF6E5
+                            .add_modifier(Modifier::DIM)     // Simulates transparency
+                    ));
+                }
+
+                // Add the "--end thinking--" marker
+                spans.push(Span::styled(
+                    "\n\n--end thinking--\n\n".to_string(),
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::DIM | Modifier::ITALIC)
+                ));
+
+                remaining = &remaining[think_end + 8..]; // Skip "</think>"
+            } else {
+                // No closing tag found, treat rest as thinking text
+                if !remaining.is_empty() {
+                    spans.push(Span::styled(
+                        remaining.to_string(),
+                        Style::default()
+                            .fg(Color::Rgb(255, 246, 229))
+                            .add_modifier(Modifier::DIM)
+                    ));
+                }
+                break;
+            }
+        } else {
+            // No more <think> tags, add the rest as normal text
+            if !remaining.is_empty() {
+                spans.push(Span::raw(remaining.to_string()));
+            }
+            break;
+        }
+    }
+
+    // If no spans were created, return the original text
+    if spans.is_empty() {
+        spans.push(Span::raw(text.to_string()));
+    }
+
+    spans
+}
+
 // API functions for chat
 impl ChatState {
     pub async fn send_message(
         api_url: &str,
         messages: &VecDeque<ChatMessage>,
+        max_tokens: u32,
     ) -> Result<mpsc::UnboundedReceiver<String>, String> {
         let (tx, rx) = mpsc::unbounded_channel();
 
@@ -537,7 +716,7 @@ impl ChatState {
 
         let request = ChatRequest {
             messages: api_messages,
-            max_tokens: Some(500),
+            max_tokens: Some(max_tokens),
             temperature: Some(0.7),
             stream: true,
         };

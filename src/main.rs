@@ -145,8 +145,8 @@ impl App {
 
             // Handle pending chat message
             if let Some(_message) = self.pending_chat_message.take() {
-                if let AppState::Chat(crate::chat::ChatState::Active { messages, .. }) = &self.state {
-                    match crate::chat::ChatState::send_message(&self.config.api_url(), messages).await {
+                if let AppState::Chat(crate::chat::ChatState::Active { messages, max_tokens, .. }) = &self.state {
+                    match crate::chat::ChatState::send_message(&self.config.api_url(), messages, *max_tokens).await {
                         Ok(rx) => {
                             self.chat_stream_rx = Some(rx);
                         }
@@ -175,7 +175,8 @@ impl App {
                         cursor_position: _,
                         is_generating,
                         current_response,
-                        scroll_offset: _,
+                        scroll_offset,
+                        max_tokens: _,
                     }) = &mut self.state {
                         if chunk == "DONE" {
                             // Finalize the response
@@ -188,6 +189,8 @@ impl App {
                                 current_response.clear();
                             }
                             *is_generating = false;
+                            // Reset scroll to allow user to scroll freely after generation
+                            *scroll_offset = 0;
                             should_clear_rx = true;
                             break;
                         } else if chunk.starts_with("ERROR:") {
@@ -197,6 +200,9 @@ impl App {
                         } else {
                             // Append chunk to current response
                             current_response.push_str(&chunk);
+                            // Auto-scroll during generation to follow the new content
+                            // This ensures the user sees the latest tokens being generated
+                            *scroll_offset = usize::MAX; // Will be clamped in draw_messages
                         }
                     }
                 }
