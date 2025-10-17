@@ -25,7 +25,39 @@ impl TopologyState {
     pub async fn fetch(api_url: &str) -> color_eyre::Result<TopologyResponse> {
         let url = format!("{}/v1/topology", api_url);
         let response = reqwest::get(&url).await?;
-        let topology: TopologyResponse = response.json().await?;
+
+        // Get the response text first, regardless of status
+        let status = response.status();
+        let text = response.text().await?;
+
+        // Check if the response contains an error detail message (for any status code)
+        if let Ok(error_response) = serde_json::from_str::<serde_json::Value>(&text) {
+            if let Some(detail) = error_response.get("detail").and_then(|d| d.as_str()) {
+                if detail.contains("No topology configured") || detail.contains("prepare_topology") {
+                    return Err(color_eyre::eyre::eyre!("No topology configured"));
+                }
+                // For other detail messages, include them in the error
+                if !status.is_success() {
+                    return Err(color_eyre::eyre::eyre!("{}", detail));
+                }
+            }
+        }
+
+        // If we couldn't parse a detail message and status is not success, return generic error
+        if !status.is_success() {
+            if status == reqwest::StatusCode::NOT_FOUND {
+                return Err(color_eyre::eyre::eyre!("No topology found - model not loaded"));
+            }
+            return Err(color_eyre::eyre::eyre!(
+                "API returned error: {} {}",
+                status.as_u16(),
+                status.canonical_reason().unwrap_or("Unknown error")
+            ));
+        }
+
+        // Try to parse as successful topology response
+        let topology: TopologyResponse = serde_json::from_str(&text)
+            .map_err(|e| color_eyre::eyre::eyre!("Failed to parse topology response: {}", e))?;
         Ok(topology)
     }
 }
@@ -133,10 +165,59 @@ impl App {
                 );
             }
             TopologyState::Error(err) => {
+                // Check if it's a "no topology" message and style accordingly
+                let (text, style) = if err.contains("No topology configured") || err.contains("No topology available") {
+                    (
+                        vec![
+                            Line::from(""),
+                            Line::from("No Topology Configured").bold().yellow(),
+                            Line::from(""),
+                            Line::from("The API is running, but no topology has been set up yet."),
+                            Line::from("Please load a model first to create a topology."),
+                            Line::from(""),
+                            Line::from("You can load a model by:"),
+                            Line::from("  1. Going back to the main menu (Esc)"),
+                            Line::from("  2. Selecting 'Load Model'"),
+                            Line::from("  3. Choosing your desired model"),
+                            Line::from(""),
+                            Line::from("This will automatically prepare the topology for you.").dim(),
+                            Line::from(""),
+                        ],
+                        Style::default().fg(Color::Yellow)
+                    )
+                } else if err.contains("Cannot connect to API server") {
+                    (
+                        vec![
+                            Line::from(""),
+                            Line::from("Connection Error").bold().red(),
+                            Line::from(""),
+                            Line::from(err.as_str()),
+                            Line::from(""),
+                            Line::from("Please check:"),
+                            Line::from("  1. The API server is running"),
+                            Line::from("  2. The URL in settings is correct"),
+                            Line::from("  3. Your network connection"),
+                            Line::from(""),
+                        ],
+                        Style::default().fg(Color::Red)
+                    )
+                } else {
+                    (
+                        vec![
+                            Line::from(""),
+                            Line::from("Error Loading Topology").bold().red(),
+                            Line::from(""),
+                            Line::from(err.as_str()),
+                            Line::from(""),
+                        ],
+                        Style::default().fg(Color::Red)
+                    )
+                };
+
                 frame.render_widget(
-                    Paragraph::new(format!("Error: {}", err))
+                    Paragraph::new(text)
                         .block(Block::bordered())
-                        .style(Style::default().fg(Color::Red))
+                        .style(style)
                         .centered(),
                     content_area,
                 );

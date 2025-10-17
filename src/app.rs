@@ -49,7 +49,23 @@ impl AppState {
                 *self = Self::TopologyView(TopologyState::Loaded(topology));
             }
             Err(err) => {
-                *self = Self::TopologyView(TopologyState::Error(err.to_string()));
+                // Check if the error is likely due to no model being loaded
+                let error_msg = err.to_string();
+                let friendly_msg = if error_msg.contains("No topology configured")
+                    || error_msg.contains("No topology found")
+                    || error_msg.contains("model not loaded")
+                    || error_msg.contains("prepare_topology")
+                    || error_msg.contains("404")
+                    || error_msg.contains("Not Found") {
+                    "No topology configured yet. Please load a model first to create a topology.".to_string()
+                } else if error_msg.contains("connection")
+                    || error_msg.contains("refused")
+                    || error_msg.contains("error sending request") {
+                    format!("Cannot connect to API server at {}. Please check your settings and ensure the server is running.", api_url)
+                } else {
+                    format!("Error: {}", error_msg)
+                };
+                *self = Self::TopologyView(TopologyState::Error(friendly_msg));
             }
         }
     }

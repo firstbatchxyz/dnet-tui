@@ -1,6 +1,6 @@
 [package]
 name = "dnet-tui"
-version = "0.1.0"
+version = "0.1.1"
 description = "Dnet distributed inference TUI"
 authors = ["erhant <erhan@dria.co>"]
 license = "APACHE-2.0"
