@@ -124,6 +124,7 @@ impl App {
             if let AppState::Developer(developer::DeveloperState::ManualAssignment(
                 developer::ManualAssignmentState::Submitting { model, shards, assignments }
             )) = &self.state.clone() {
+                let model_name = model.clone();
                 match developer::ManualAssignmentState::submit_manual_topology(
                     &self.config.api_url(),
                     &model,
@@ -131,13 +132,34 @@ impl App {
                     &assignments,
                 ).await {
                     Ok(_) => {
+                        // Topology prepared, now load the model
                         self.state = AppState::Developer(developer::DeveloperState::ManualAssignment(
-                            developer::ManualAssignmentState::Success,
+                            developer::ManualAssignmentState::LoadingModel(model_name),
                         ));
                     }
                     Err(err) => {
                         self.state = AppState::Developer(developer::DeveloperState::ManualAssignment(
                             developer::ManualAssignmentState::Error(err.to_string()),
+                        ));
+                    }
+                }
+            }
+
+            // Check if we need to load model after manual topology
+            if let AppState::Developer(developer::DeveloperState::ManualAssignment(
+                developer::ManualAssignmentState::LoadingModel(model)
+            )) = &self.state.clone() {
+                // Load the model using the existing LoadModelState functionality
+                match LoadModelState::load_model(&self.config.api_url(), Some(&model)).await {
+                    Ok(_response) => {
+                        self.state = AppState::Developer(developer::DeveloperState::ManualAssignment(
+                            developer::ManualAssignmentState::Success,
+                        ));
+                        self.model_loaded = true;  // Set model loaded flag
+                    }
+                    Err(err) => {
+                        self.state = AppState::Developer(developer::DeveloperState::ManualAssignment(
+                            developer::ManualAssignmentState::Error(format!("Failed to load model: {}", err)),
                         ));
                     }
                 }

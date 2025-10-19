@@ -35,6 +35,7 @@ pub enum ManualAssignmentState {
         shards: Vec<ShardInfo>,
         assignments: HashMap<String, Vec<u32>>,
     },
+    LoadingModel(String), // model name - new state for loading after topology
     Success,
     Error(String),
 }
@@ -199,9 +200,18 @@ impl App {
                     content_area,
                 );
             }
+            ManualAssignmentState::LoadingModel(model) => {
+                frame.render_widget(
+                    Paragraph::new(format!("Loading model {}...\nThis may take a few moments.", model))
+                        .block(Block::default().borders(Borders::ALL))
+                        .style(Style::default().fg(Color::Cyan))
+                        .centered(),
+                    content_area,
+                );
+            }
             ManualAssignmentState::Success => {
                 frame.render_widget(
-                    Paragraph::new("✓ Manual topology prepared successfully!")
+                    Paragraph::new("✓ Manual topology prepared and model loaded successfully!")
                         .block(Block::default().borders(Borders::ALL))
                         .style(Style::default().fg(Color::Green))
                         .centered(),
@@ -528,6 +538,9 @@ impl App {
                         input_buffer,
                     },
                 ));
+            }
+            ManualAssignmentState::LoadingModel(_) => {
+                // Loading is in progress, just wait
             }
             ManualAssignmentState::Success | ManualAssignmentState::Error(_) => {
                 if key.code == KeyCode::Esc {
