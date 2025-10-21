@@ -688,6 +688,29 @@ fn parse_think_tags(text: &str) -> Vec<Span<'_>> {
     spans
 }
 
+// Helper function to clean model-specific special tokens from streaming content
+fn clean_model_tokens(content: &str) -> String {
+    let mut cleaned = content.to_string();
+
+    // Common model-specific end tokens to filter out
+    let tokens_to_remove = [
+        "<|im_end|>",        // Qwen models
+        "<|endoftext|>",     // GPT models
+        "<|im_start|>",      // Qwen models (shouldn't appear but just in case)
+        "</s>",              // Llama models
+        "<s>",               // Llama models
+        "[INST]",            // Instruction models
+        "[/INST]",           // Instruction models
+        "�",                 // Unicode replacement character (malformed UTF-8)
+    ];
+
+    for token in &tokens_to_remove {
+        cleaned = cleaned.replace(token, "");
+    }
+
+    cleaned
+}
+
 // API functions for chat
 impl ChatState {
     pub async fn send_message(
@@ -787,8 +810,13 @@ async fn stream_chat_response(
                 if let Ok(chunk) = serde_json::from_str::<StreamChunk>(json_str) {
                     if let Some(choice) = chunk.choices.first() {
                         if let Some(content) = &choice.delta.content {
-                            // Send each token immediately
-                            tx.send(content.clone()).ok();
+                            // Filter out model-specific special tokens
+                            let cleaned_content = clean_model_tokens(content);
+
+                            // Only send if there's actual content after cleaning
+                            if !cleaned_content.is_empty() {
+                                tx.send(cleaned_content).ok();
+                            }
                         }
                         if choice.finish_reason.is_some() {
                             tx.send("DONE".to_string()).ok();

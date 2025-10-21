@@ -80,7 +80,15 @@ pub struct Device {
     pub server_port: u16,
     pub shard_port: u16,
     pub local_ip: String,
-    pub thunderbolt: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub thunderbolt: Option<ThunderboltInfo>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ThunderboltInfo {
+    pub ip_addr: String,
+    // Using serde_json::Value to handle the complex nested structure
+    pub instances: serde_json::Value,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -98,21 +106,26 @@ pub enum Solution {
         source: String
     },
     Optimized {
+        #[serde(default)]
         w: Vec<u32>,
+        #[serde(default)]
         n: Vec<u32>,
+        #[serde(default)]
         k: u32,
+        #[serde(default)]
         obj_value: f64,
+        #[serde(default)]
         sets: SolutionSets,
     },
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct SolutionSets {
-    #[serde(rename = "M1")]
+    #[serde(rename = "M1", default)]
     pub m1: Vec<u32>,
-    #[serde(rename = "M2")]
+    #[serde(rename = "M2", default)]
     pub m2: Vec<u32>,
-    #[serde(rename = "M3")]
+    #[serde(rename = "M3", default)]
     pub m3: Vec<u32>,
 }
 
