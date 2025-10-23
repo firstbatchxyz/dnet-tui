@@ -1,7 +1,7 @@
-use crate::{
-    app::{App, AppState},
-    utils::get_sliding_text,
-};
+/// Shard-viewer.
+pub(crate) mod shard;
+
+use crate::{app::AppState, utils::get_sliding_text};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{
     Frame,
@@ -23,7 +23,7 @@ pub enum TopologyState {
     Error(String),
 }
 
-impl AppState {
+impl crate::AppState {
     /// Check if the state is in `Loading` topology state.
     ///
     /// This should trigger [`Self::load_topology`] in the main loop.
@@ -179,11 +179,6 @@ pub struct SolutionSets {
 }
 
 impl TopologyResponse {
-    /// Get device short name (extract first part before dots)
-    pub fn device_short_name(device: &str) -> String {
-        device.split('.').next().unwrap_or(device).to_string()
-    }
-
     /// Format layer assignments compactly (e.g., [0..11, 12..23, 24..35])
     pub fn format_layers(layers: &[Vec<u32>]) -> String {
         let ranges: Vec<String> = layers
@@ -201,7 +196,7 @@ impl TopologyResponse {
         format!("[{}]", ranges.join(", "))
     }
 }
-impl App {
+impl crate::App {
     pub fn draw_topology(&mut self, frame: &mut Frame, state: &TopologyState) {
         let area = frame.area();
 
@@ -355,15 +350,15 @@ impl App {
                 continue;
             };
 
-            // Get full device name (remove "shard-" prefix)
-            let full_name = device
+            // Get device name without "shard-" prefix
+            let instance = device
                 .instance
                 .strip_prefix("shard-")
                 .unwrap_or(&device.instance)
                 .to_string();
 
             // Apply sliding window animation to device name
-            let short_name = get_sliding_text(self.animation_start.elapsed(), &full_name, 30);
+            let short_name = get_sliding_text(self.animation_start.elapsed(), &instance, 30);
 
             // Get IP and GRPC port
             let ip = format!(
@@ -498,51 +493,6 @@ impl App {
         frame.render_widget(canvas, area);
     }
 
-    pub fn draw_shard_interaction(&mut self, frame: &mut Frame, device: &str) {
-        let area = frame.area();
-
-        let vertical = Layout::vertical([
-            Constraint::Length(3), // Title
-            Constraint::Min(0),    // Content
-            Constraint::Length(3), // Footer
-        ]);
-        let [title_area, content_area, footer_area] = vertical.areas(area);
-
-        // Title
-        let short_name = TopologyResponse::device_short_name(device);
-        let title = Line::from(format!("Shard Interaction: {}", short_name))
-            .bold()
-            .blue()
-            .centered();
-        frame.render_widget(Paragraph::new(title).block(Block::bordered()), title_area);
-
-        // Content - Placeholder for now
-        let content = vec![
-            Line::from(""),
-            Line::from(format!("Device: {}", device)).bold(),
-            Line::from(""),
-            Line::from("This window will allow you to:"),
-            Line::from("  • Send GET/POST requests to this shard"),
-            Line::from("  • View shard information"),
-            Line::from("  • Test connectivity"),
-            Line::from(""),
-            Line::from("Coming soon...").dim(),
-        ];
-
-        frame.render_widget(
-            Paragraph::new(content).block(Block::bordered().title("Shard Communication")),
-            content_area,
-        );
-
-        // Footer
-        frame.render_widget(
-            Paragraph::new("Press Esc to go back to topology")
-                .block(Block::bordered())
-                .centered(),
-            footer_area,
-        );
-    }
-
     pub fn handle_topology_input(&mut self, key: KeyEvent) {
         match (key.modifiers, key.code) {
             (_, KeyCode::Esc) => {
@@ -553,21 +503,6 @@ impl App {
             (_, KeyCode::Up) => self.topology_device_up(),
             (_, KeyCode::Down) => self.topology_device_down(),
             (_, KeyCode::Enter) => self.open_shard_interaction(),
-            _ => {}
-        }
-    }
-
-    pub fn handle_shard_interaction_input(&mut self, key: KeyEvent) {
-        match (key.modifiers, key.code) {
-            (_, KeyCode::Esc) => {
-                // Go back to topology view - restore the topology state
-                if let AppState::ShardView(_) = &self.state {
-                    // We need to restore the topology - for now go back to menu
-                    // TODO: Keep topology state when entering shard interaction
-                    self.state.reset_to_menu();
-                }
-            }
-            (KeyModifiers::CONTROL, KeyCode::Char('c') | KeyCode::Char('C')) => self.quit(),
             _ => {}
         }
     }

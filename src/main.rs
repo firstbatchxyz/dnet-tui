@@ -1,11 +1,14 @@
+/// The top-level application module.
 mod app;
 pub use app::{App, AppState};
+
+/// Views for each "screen".
+mod views;
+use views::*;
 
 mod config;
 mod constants;
 mod utils;
-mod views;
-use views::*;
 
 use color_eyre::Result;
 use crossterm::event::{Event, KeyEvent, KeyEventKind};
@@ -23,17 +26,21 @@ async fn main() -> color_eyre::Result<()> {
     result
 }
 
+/// 60 FPS = 1000ms / 60 = 16.67ms per frame
+const FPS_RATE: Duration = Duration::from_millis(1000 / 60);
+
 impl App {
     /// Run the application's main loop.
     pub async fn run(mut self, mut terminal: DefaultTerminal) -> Result<()> {
         self.running = true;
 
         // check if a model is already loaded on startup
+        // TODO: this should check for topology instead, which may enable / disable view topology button too
+        // TODO: maybe this should be done ONCE as the user opens the menu for the first time?
         self.model_loaded = chat::is_model_loaded(&self.config.api_url()).await;
 
         // create a ticker for animation updates
-        // 60FPS = 16.67ms per frame = 1000ms / 60
-        let mut interval = tokio::time::interval(Duration::from_millis(1000 / 60));
+        let mut interval = tokio::time::interval(FPS_RATE);
 
         while self.running {
             terminal.draw(|frame| self.draw(frame))?;

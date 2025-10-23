@@ -1,6 +1,6 @@
 use super::DeveloperState;
+use crate::AppState;
 use crate::constants::AVAILABLE_MODELS;
-use crate::{App, AppState};
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::{
     Frame,
@@ -86,7 +86,7 @@ struct AssignmentInfo {
     next_service: String,
 }
 
-impl App {
+impl crate::App {
     pub fn draw_manual_assignment(&mut self, frame: &mut Frame, state: &ManualAssignmentState) {
         let area = frame.area();
 
