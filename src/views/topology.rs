@@ -1,4 +1,7 @@
-use crate::app::{App, AppState};
+use crate::{
+    app::{App, AppState},
+    utils::get_sliding_text,
+};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{
     Frame,
@@ -20,6 +23,50 @@ pub enum TopologyState {
     Error(String),
 }
 
+impl AppState {
+    /// Check if the state is in `Loading` topology state.
+    ///
+    /// This should trigger [`Self::load_topology`] in the main loop.
+    pub fn is_loading_topology(&self) -> bool {
+        matches!(self, Self::TopologyView(TopologyState::Loading))
+    }
+
+    /// Load topology asynchronously and update state.
+    pub async fn load_topology(&mut self, api_url: &str) {
+        match TopologyState::fetch(api_url).await {
+            Ok(topology) => {
+                *self = Self::TopologyView(TopologyState::Loaded(topology));
+            }
+            Err(err) => {
+                // TODO: handle this better
+                // Check if the error is likely due to no model being loaded
+                let error_msg = err.to_string();
+                let friendly_msg = if error_msg.contains("No topology configured")
+                    || error_msg.contains("No topology found")
+                    || error_msg.contains("model not loaded")
+                    || error_msg.contains("prepare_topology")
+                    || error_msg.contains("404")
+                    || error_msg.contains("Not Found")
+                {
+                    "No topology configured yet. Please load a model first to create a topology."
+                        .to_string()
+                } else if error_msg.contains("connection")
+                    || error_msg.contains("refused")
+                    || error_msg.contains("error sending request")
+                {
+                    format!(
+                        "Cannot connect to API server at {}. Please check your settings and ensure the server is running.",
+                        api_url
+                    )
+                } else {
+                    format!("Error: {}", error_msg)
+                };
+                *self = Self::TopologyView(TopologyState::Error(friendly_msg));
+            }
+        }
+    }
+}
+
 impl TopologyState {
     /// Fetch topology from the API
     pub async fn fetch(api_url: &str) -> color_eyre::Result<TopologyResponse> {
@@ -33,7 +80,8 @@ impl TopologyState {
         // Check if the response contains an error detail message (for any status code)
         if let Ok(error_response) = serde_json::from_str::<serde_json::Value>(&text) {
             if let Some(detail) = error_response.get("detail").and_then(|d| d.as_str()) {
-                if detail.contains("No topology configured") || detail.contains("prepare_topology") {
+                if detail.contains("No topology configured") || detail.contains("prepare_topology")
+                {
                     return Err(color_eyre::eyre::eyre!("No topology configured"));
                 }
                 // For other detail messages, include them in the error
@@ -46,7 +94,9 @@ impl TopologyState {
         // If we couldn't parse a detail message and status is not success, return generic error
         if !status.is_success() {
             if status == reqwest::StatusCode::NOT_FOUND {
-                return Err(color_eyre::eyre::eyre!("No topology found - model not loaded"));
+                return Err(color_eyre::eyre::eyre!(
+                    "No topology found - model not loaded"
+                ));
             }
             return Err(color_eyre::eyre::eyre!(
                 "API returned error: {} {}",
@@ -76,7 +126,6 @@ pub struct Device {
     pub is_manager: bool,
     pub is_busy: bool,
     pub instance: String,
-    pub host: String,
     pub server_port: u16,
     pub shard_port: u16,
     pub local_ip: String,
@@ -103,7 +152,7 @@ pub struct Assignment {
 #[serde(untagged)]
 pub enum Solution {
     Manual {
-        source: String
+        source: String,
     },
     Optimized {
         #[serde(default)]
@@ -179,7 +228,9 @@ impl App {
             }
             TopologyState::Error(err) => {
                 // Check if it's a "no topology" message and style accordingly
-                let (text, style) = if err.contains("No topology configured") || err.contains("No topology available") {
+                let (text, style) = if err.contains("No topology configured")
+                    || err.contains("No topology available")
+                {
                     (
                         vec![
                             Line::from(""),
@@ -193,10 +244,11 @@ impl App {
                             Line::from("  2. Selecting 'Load Model'"),
                             Line::from("  3. Choosing your desired model"),
                             Line::from(""),
-                            Line::from("This will automatically prepare the topology for you.").dim(),
+                            Line::from("This will automatically prepare the topology for you.")
+                                .dim(),
                             Line::from(""),
                         ],
-                        Style::default().fg(Color::Yellow)
+                        Style::default().fg(Color::Yellow),
                     )
                 } else if err.contains("Cannot connect to API server") {
                     (
@@ -212,7 +264,7 @@ impl App {
                             Line::from("  3. Your network connection"),
                             Line::from(""),
                         ],
-                        Style::default().fg(Color::Red)
+                        Style::default().fg(Color::Red),
                     )
                 } else {
                     (
@@ -223,7 +275,7 @@ impl App {
                             Line::from(err.as_str()),
                             Line::from(""),
                         ],
-                        Style::default().fg(Color::Red)
+                        Style::default().fg(Color::Red),
                     )
                 };
 
@@ -311,7 +363,7 @@ impl App {
                 .to_string();
 
             // Apply sliding window animation to device name
-            let short_name = self.get_sliding_text(&full_name, 30);
+            let short_name = get_sliding_text(self.animation_start.elapsed(), &full_name, 30);
 
             // Get IP and GRPC port
             let ip = format!(
@@ -408,11 +460,12 @@ impl App {
                     // If selected, draw additional points around it to make it stand out
                     if *is_selected {
                         ctx.draw(&Points {
+                            #[rustfmt::skip]
                             coords: &[
-                                (*x + 0.5, *y),
-                                (*x - 0.5, *y),
-                                (*x, *y + 0.5),
-                                (*x, *y - 0.5),
+                                (*x + 0.5, *y      ),
+                                (*x - 0.5, *y      ),
+                                (*x      , *y + 0.5),
+                                (*x      , *y - 0.5)
                             ],
                             color: Color::Yellow,
                         });
@@ -493,7 +546,7 @@ impl App {
     pub fn handle_topology_input(&mut self, key: KeyEvent) {
         match (key.modifiers, key.code) {
             (_, KeyCode::Esc) => {
-                self.state = AppState::Menu;
+                self.state.reset_to_menu();
                 self.selected_device = 0; // Reset selection
             }
             (KeyModifiers::CONTROL, KeyCode::Char('c') | KeyCode::Char('C')) => self.quit(),
@@ -511,7 +564,7 @@ impl App {
                 if let AppState::ShardView(_) = &self.state {
                     // We need to restore the topology - for now go back to menu
                     // TODO: Keep topology state when entering shard interaction
-                    self.state = AppState::Menu;
+                    self.state.reset_to_menu();
                 }
             }
             (KeyModifiers::CONTROL, KeyCode::Char('c') | KeyCode::Char('C')) => self.quit(),
@@ -563,5 +616,17 @@ mod tests {
         let topology = TopologyState::fetch(api_url).await;
         println!("{:#?}", topology);
         assert!(topology.is_ok());
+    }
+
+    #[test]
+    fn test_format_layers() {
+        let layers = vec![
+            vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
+            vec![12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23],
+            vec![24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35],
+            vec![36],
+        ];
+        let formatted = TopologyResponse::format_layers(&layers);
+        assert_eq!(formatted, "[0..11, 12..23, 24..35, 36]");
     }
 }

@@ -1,22 +1,16 @@
 mod app;
-/// Chat interface.
-mod chat;
-/// Configurations & settings.
-mod config;
-/// Developer tools and manual assignment.
-mod developer;
-/// Menu interface.
-mod menu;
-/// Loading models & prepaing.
-mod model;
-mod settings;
-mod shard;
-mod topology;
+pub use app::{App, AppState};
 
-use app::{App, AppState, LoadModelState, UnloadModelState};
+mod config;
+mod constants;
+mod utils;
+mod views;
+use views::*;
+
 use color_eyre::Result;
 use crossterm::event::{Event, KeyEvent, KeyEventKind};
 use futures::{FutureExt, StreamExt};
+use model::{LoadModelState, UnloadModelState};
 use ratatui::{DefaultTerminal, Frame};
 use std::time::Duration;
 
@@ -34,11 +28,12 @@ impl App {
     pub async fn run(mut self, mut terminal: DefaultTerminal) -> Result<()> {
         self.running = true;
 
-        // Check if a model is already loaded on startup
+        // check if a model is already loaded on startup
         self.model_loaded = chat::is_model_loaded(&self.config.api_url()).await;
 
-        // Create a ticker for animation updates (60 FPS for smooth animation)
-        let mut interval = tokio::time::interval(Duration::from_millis(16));
+        // create a ticker for animation updates
+        // 60FPS = 16.67ms per frame = 1000ms / 60
+        let mut interval = tokio::time::interval(Duration::from_millis(1000 / 60));
 
         while self.running {
             terminal.draw(|frame| self.draw(frame))?;
@@ -56,13 +51,16 @@ impl App {
                     Ok(_topology) => {
                         // Move to loading model state and trigger load
                         let model_name = model.clone();
-                        self.state = AppState::LoadModel(LoadModelState::LoadingModel(model_name.clone()));
+                        self.state =
+                            AppState::LoadModel(LoadModelState::LoadingModel(model_name.clone()));
 
                         // Load the model - just pass the model name
-                        match LoadModelState::load_model(&self.config.api_url(), Some(&model_name)).await {
+                        match LoadModelState::load_model(&self.config.api_url(), Some(&model_name))
+                            .await
+                        {
                             Ok(response) => {
                                 self.state = AppState::LoadModel(LoadModelState::Success(response));
-                                self.model_loaded = true;  // Set model loaded flag
+                                self.model_loaded = true; // Set model loaded flag
                             }
                             Err(err) => {
                                 self.state =
@@ -84,7 +82,7 @@ impl App {
                 match UnloadModelState::unload_model(&self.config.api_url()).await {
                     Ok(_) => {
                         self.state = AppState::UnloadModel(UnloadModelState::Success);
-                        self.model_loaded = false;  // Clear model loaded flag
+                        self.model_loaded = false; // Clear model loaded flag
                     }
                     Err(err) => {
                         self.state =
@@ -95,80 +93,114 @@ impl App {
 
             // Check if we need to fetch shards for manual assignment
             if let AppState::Developer(developer::DeveloperState::ManualAssignment(
-                developer::ManualAssignmentState::FetchingShards(model)
-            )) = &self.state.clone() {
+                developer::ManualAssignmentState::FetchingShards(model),
+            )) = &self.state.clone()
+            {
                 let model = model.clone();
-                match developer::ManualAssignmentState::fetch_shards_with_model(&self.config.api_url(), &model).await {
+                match developer::ManualAssignmentState::fetch_shards_with_model(
+                    &self.config.api_url(),
+                    &model,
+                )
+                .await
+                {
                     Ok((shards, num_layers)) => {
-                        self.state = AppState::Developer(developer::DeveloperState::ManualAssignment(
-                            developer::ManualAssignmentState::AssigningLayers {
-                                model,
-                                num_layers,
-                                shards,
-                                assignments: std::collections::HashMap::new(),
-                                selected_shard: 0,
-                                input_mode: false,
-                                input_buffer: String::new(),
-                            },
-                        ));
+                        self.state =
+                            AppState::Developer(developer::DeveloperState::ManualAssignment(
+                                developer::ManualAssignmentState::AssigningLayers {
+                                    model,
+                                    num_layers,
+                                    shards,
+                                    assignments: std::collections::HashMap::new(),
+                                    selected_shard: 0,
+                                    input_mode: false,
+                                    input_buffer: String::new(),
+                                },
+                            ));
                     }
                     Err(err) => {
-                        self.state = AppState::Developer(developer::DeveloperState::ManualAssignment(
-                            developer::ManualAssignmentState::Error(err.to_string()),
-                        ));
+                        self.state =
+                            AppState::Developer(developer::DeveloperState::ManualAssignment(
+                                developer::ManualAssignmentState::Error(err.to_string()),
+                            ));
                     }
                 }
             }
 
             // Check if we need to submit manual topology
             if let AppState::Developer(developer::DeveloperState::ManualAssignment(
-                developer::ManualAssignmentState::Submitting { model, shards, assignments }
-            )) = &self.state.clone() {
+                developer::ManualAssignmentState::Submitting {
+                    model,
+                    shards,
+                    assignments,
+                },
+            )) = &self.state.clone()
+            {
                 let model_name = model.clone();
                 match developer::ManualAssignmentState::submit_manual_topology(
                     &self.config.api_url(),
                     &model,
                     &shards,
                     &assignments,
-                ).await {
+                )
+                .await
+                {
                     Ok(_) => {
                         // Topology prepared, now load the model
-                        self.state = AppState::Developer(developer::DeveloperState::ManualAssignment(
-                            developer::ManualAssignmentState::LoadingModel(model_name),
-                        ));
+                        self.state =
+                            AppState::Developer(developer::DeveloperState::ManualAssignment(
+                                developer::ManualAssignmentState::LoadingModel(model_name),
+                            ));
                     }
                     Err(err) => {
-                        self.state = AppState::Developer(developer::DeveloperState::ManualAssignment(
-                            developer::ManualAssignmentState::Error(err.to_string()),
-                        ));
+                        self.state =
+                            AppState::Developer(developer::DeveloperState::ManualAssignment(
+                                developer::ManualAssignmentState::Error(err.to_string()),
+                            ));
                     }
                 }
             }
 
             // Check if we need to load model after manual topology
             if let AppState::Developer(developer::DeveloperState::ManualAssignment(
-                developer::ManualAssignmentState::LoadingModel(model)
-            )) = &self.state.clone() {
+                developer::ManualAssignmentState::LoadingModel(model),
+            )) = &self.state.clone()
+            {
                 // Load the model using the existing LoadModelState functionality
                 match LoadModelState::load_model(&self.config.api_url(), Some(&model)).await {
                     Ok(_response) => {
-                        self.state = AppState::Developer(developer::DeveloperState::ManualAssignment(
-                            developer::ManualAssignmentState::Success,
-                        ));
-                        self.model_loaded = true;  // Set model loaded flag
+                        self.state =
+                            AppState::Developer(developer::DeveloperState::ManualAssignment(
+                                developer::ManualAssignmentState::Success,
+                            ));
+                        self.model_loaded = true; // Set model loaded flag
                     }
                     Err(err) => {
-                        self.state = AppState::Developer(developer::DeveloperState::ManualAssignment(
-                            developer::ManualAssignmentState::Error(format!("Failed to load model: {}", err)),
-                        ));
+                        self.state =
+                            AppState::Developer(developer::DeveloperState::ManualAssignment(
+                                developer::ManualAssignmentState::Error(format!(
+                                    "Failed to load model: {}",
+                                    err
+                                )),
+                            ));
                     }
                 }
             }
 
             // Handle pending chat message
             if let Some(_message) = self.pending_chat_message.take() {
-                if let AppState::Chat(crate::chat::ChatState::Active { messages, max_tokens, .. }) = &self.state {
-                    match crate::chat::ChatState::send_message(&self.config.api_url(), messages, *max_tokens).await {
+                if let AppState::Chat(crate::chat::ChatState::Active {
+                    messages,
+                    max_tokens,
+                    ..
+                }) = &self.state
+                {
+                    match crate::chat::ChatState::send_message(
+                        &self.config.api_url(),
+                        messages,
+                        *max_tokens,
+                    )
+                    .await
+                    {
                         Ok(rx) => {
                             self.chat_stream_rx = Some(rx);
                         }
@@ -192,42 +224,43 @@ impl App {
                     // Try to receive messages without blocking
                     while let Ok(chunk) = rx.try_recv() {
                         if let AppState::Chat(crate::chat::ChatState::Active {
-                        messages,
-                        input_buffer: _,
-                        cursor_position: _,
-                        is_generating,
-                        current_response,
-                        scroll_offset,
-                        max_tokens: _,
-                    }) = &mut self.state {
-                        if chunk == "DONE" {
-                            // Finalize the response
-                            if !current_response.is_empty() {
-                                messages.push_back(crate::chat::ChatMessage {
-                                    role: "assistant".to_string(),
-                                    content: current_response.clone(),
-                                    timestamp: chrono::Local::now().format("%H:%M").to_string(),
-                                });
-                                current_response.clear();
+                            messages,
+                            input_buffer: _,
+                            cursor_position: _,
+                            is_generating,
+                            current_response,
+                            scroll_offset,
+                            max_tokens: _,
+                        }) = &mut self.state
+                        {
+                            if chunk == "DONE" {
+                                // Finalize the response
+                                if !current_response.is_empty() {
+                                    messages.push_back(crate::chat::ChatMessage {
+                                        role: "assistant".to_string(),
+                                        content: current_response.clone(),
+                                        timestamp: chrono::Local::now().format("%H:%M").to_string(),
+                                    });
+                                    current_response.clear();
+                                }
+                                *is_generating = false;
+                                // Reset scroll to allow user to scroll freely after generation
+                                *scroll_offset = 0;
+                                should_clear_rx = true;
+                                break;
+                            } else if chunk.starts_with("ERROR:") {
+                                new_error_state = Some(chunk);
+                                should_clear_rx = true;
+                                break;
+                            } else {
+                                // Append chunk to current response
+                                current_response.push_str(&chunk);
+                                // Auto-scroll during generation to follow the new content
+                                // This ensures the user sees the latest tokens being generated
+                                *scroll_offset = usize::MAX; // Will be clamped in draw_messages
                             }
-                            *is_generating = false;
-                            // Reset scroll to allow user to scroll freely after generation
-                            *scroll_offset = 0;
-                            should_clear_rx = true;
-                            break;
-                        } else if chunk.starts_with("ERROR:") {
-                            new_error_state = Some(chunk);
-                            should_clear_rx = true;
-                            break;
-                        } else {
-                            // Append chunk to current response
-                            current_response.push_str(&chunk);
-                            // Auto-scroll during generation to follow the new content
-                            // This ensures the user sees the latest tokens being generated
-                            *scroll_offset = usize::MAX; // Will be clamped in draw_messages
                         }
                     }
-                }
 
                     // Handle state changes after processing
                     if let Some(error) = new_error_state {
@@ -239,10 +272,11 @@ impl App {
                 }
             }
 
-            // Handle events with timeout to allow animation updates
+            // handle events with timeout to allow animation updates
             tokio::select! {
                 _ = interval.tick() => {
-                    // Just trigger a redraw for animation
+                    // will trigger a redraw for animation by looping
+                    continue;
                 }
                 result = self.handle_crossterm_events() => {
                     result?;
@@ -272,7 +306,9 @@ impl App {
         match event {
             Some(Ok(evt)) => match evt {
                 Event::Key(key) if key.kind == KeyEventKind::Press => self.on_key_event(key),
-                Event::Mouse(_) => {}
+                Event::Mouse(_) => {
+                    // TODO: do we want mouse events?
+                }
                 Event::Resize(_, _) => {}
                 _ => {}
             },

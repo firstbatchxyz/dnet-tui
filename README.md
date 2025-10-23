@@ -26,6 +26,10 @@ Run the application:
 dnet-tui
 ```
 
+## Contributions
+
+The code is structured so that all "windows" are thought of as their own modules, and they implement the required methods via `impl App` and `impl AppState` within their own file, with respect to visibility.
+
 ## License
 
 See the [LICENSE](LICENSE) file for details.

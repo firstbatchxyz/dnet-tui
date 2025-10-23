@@ -1,5 +1,5 @@
-use crate::app::{App, AppState};
 use crate::config::Config;
+use crate::{App, AppState};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{
     Frame,

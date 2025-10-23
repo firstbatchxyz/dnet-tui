@@ -1,4 +1,4 @@
-use crate::app::{App, AppState};
+use crate::AppState;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{
     Frame,
@@ -94,7 +94,7 @@ impl ChatState {
     }
 }
 
-impl App {
+impl crate::App {
     pub fn draw_chat(&mut self, frame: &mut Frame, state: &ChatState) {
         let area = frame.area();
 
@@ -132,10 +132,23 @@ impl App {
                 max_tokens: _,
             } => {
                 // Draw messages
-                self.draw_messages(frame, messages_area, messages, current_response, *is_generating, *scroll_offset);
+                self.draw_chat_messages(
+                    frame,
+                    messages_area,
+                    messages,
+                    current_response,
+                    *is_generating,
+                    *scroll_offset,
+                );
 
                 // Draw input area
-                self.draw_input_area(frame, input_area, input_buffer, *cursor_position, *is_generating);
+                self.draw_input_area(
+                    frame,
+                    input_area,
+                    input_buffer,
+                    *cursor_position,
+                    *is_generating,
+                );
 
                 // Footer
                 let footer_text = if *is_generating {
@@ -169,7 +182,7 @@ impl App {
         }
     }
 
-    fn draw_messages(
+    fn draw_chat_messages(
         &mut self,
         frame: &mut Frame,
         area: Rect,
@@ -182,16 +195,22 @@ impl App {
 
         // Convert messages to lines
         for msg in messages {
+            let role_text = msg.role.to_uppercase();
             // Add role header
             let role_style = match msg.role.as_str() {
-                "user" => Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
-                "assistant" => Style::default().fg(Color::Blue).add_modifier(Modifier::BOLD),
+                "user" => Style::default()
+                    .fg(Color::Green)
+                    .add_modifier(Modifier::BOLD),
+                "assistant" => Style::default()
+                    .fg(Color::Blue)
+                    .add_modifier(Modifier::BOLD),
                 _ => Style::default().fg(Color::Gray),
             };
-
-            let role_text = msg.role.to_uppercase();
             lines.push(Line::from(vec![
-                Span::styled(format!("[{}] ", msg.timestamp), Style::default().fg(Color::DarkGray)),
+                Span::styled(
+                    format!("[{}] ", msg.timestamp),
+                    Style::default().fg(Color::DarkGray),
+                ),
                 Span::styled(role_text, role_style),
             ]));
 
@@ -230,7 +249,12 @@ impl App {
                     format!("[{}] ", chrono::Local::now().format("%H:%M")),
                     Style::default().fg(Color::DarkGray),
                 ),
-                Span::styled("ASSISTANT", Style::default().fg(Color::Blue).add_modifier(Modifier::BOLD)),
+                Span::styled(
+                    "ASSISTANT",
+                    Style::default()
+                        .fg(Color::Blue)
+                        .add_modifier(Modifier::BOLD),
+                ),
             ]));
 
             // Parse current response for think tags
@@ -243,7 +267,12 @@ impl App {
 
             // Add typing indicator if still generating
             if is_generating {
-                lines.push(Line::from(Span::styled("▌", Style::default().fg(Color::Blue).add_modifier(Modifier::SLOW_BLINK))));
+                lines.push(Line::from(Span::styled(
+                    "▌",
+                    Style::default()
+                        .fg(Color::Blue)
+                        .add_modifier(Modifier::SLOW_BLINK),
+                )));
             }
         }
 
@@ -277,17 +306,12 @@ impl App {
 
         // Draw scroll indicator if needed
         if total_lines > visible_height {
-            let scroll_percent = (scroll as f32 / (total_lines - visible_height) as f32 * 100.0) as u16;
+            let scroll_percent =
+                (scroll as f32 / (total_lines - visible_height) as f32 * 100.0) as u16;
             let scroll_indicator = format!(" {}% ", scroll_percent);
             frame.render_widget(
-                Paragraph::new(scroll_indicator)
-                    .style(Style::default().fg(Color::Yellow)),
-                Rect::new(
-                    area.x + area.width - 6,
-                    area.y,
-                    5,
-                    1,
-                ),
+                Paragraph::new(scroll_indicator).style(Style::default().fg(Color::Yellow)),
+                Rect::new(area.x + area.width - 6, area.y, 5, 1),
             );
         }
     }
@@ -345,7 +369,8 @@ impl App {
             current_response,
             scroll_offset,
             max_tokens,
-        } = state {
+        } = state
+        {
             let mut messages = messages.clone();
             let mut input_buffer = input_buffer.clone();
             let mut cursor_position = *cursor_position;
@@ -645,8 +670,8 @@ fn parse_think_tags(text: &str) -> Vec<Span<'_>> {
                     spans.push(Span::styled(
                         think_content.to_string(),
                         Style::default()
-                            .fg(Color::Rgb(255, 246, 229))  // #FFF6E5
-                            .add_modifier(Modifier::DIM)     // Simulates transparency
+                            .fg(Color::Rgb(255, 246, 229)) // #FFF6E5
+                            .add_modifier(Modifier::DIM), // Simulates transparency
                     ));
                 }
 
@@ -655,7 +680,7 @@ fn parse_think_tags(text: &str) -> Vec<Span<'_>> {
                     "\n\n--end thinking--\n\n".to_string(),
                     Style::default()
                         .fg(Color::Yellow)
-                        .add_modifier(Modifier::DIM | Modifier::ITALIC)
+                        .add_modifier(Modifier::DIM | Modifier::ITALIC),
                 ));
 
                 remaining = &remaining[think_end + 8..]; // Skip "</think>"
@@ -666,7 +691,7 @@ fn parse_think_tags(text: &str) -> Vec<Span<'_>> {
                         remaining.to_string(),
                         Style::default()
                             .fg(Color::Rgb(255, 246, 229))
-                            .add_modifier(Modifier::DIM)
+                            .add_modifier(Modifier::DIM),
                     ));
                 }
                 break;
@@ -694,14 +719,14 @@ fn clean_model_tokens(content: &str) -> String {
 
     // Common model-specific end tokens to filter out
     let tokens_to_remove = [
-        "<|im_end|>",        // Qwen models
-        "<|endoftext|>",     // GPT models
-        "<|im_start|>",      // Qwen models (shouldn't appear but just in case)
-        "</s>",              // Llama models
-        "<s>",               // Llama models
-        "[INST]",            // Instruction models
-        "[/INST]",           // Instruction models
-        "�",                 // Unicode replacement character (malformed UTF-8)
+        "<|im_end|>",    // Qwen models
+        "<|endoftext|>", // GPT models
+        "<|im_start|>",  // Qwen models (shouldn't appear but just in case)
+        "</s>",          // Llama models
+        "<s>",           // Llama models
+        "[INST]",        // Instruction models
+        "[/INST]",       // Instruction models
+        "�",             // Unicode replacement character (malformed UTF-8)
     ];
 
     for token in &tokens_to_remove {
@@ -767,11 +792,7 @@ async fn stream_chat_response(
     let client = reqwest::Client::new();
     let url = format!("{}/v1/chat/completions", api_url);
 
-    let response = client
-        .post(&url)
-        .json(&request)
-        .send()
-        .await?;
+    let response = client.post(&url).json(&request).send().await?;
 
     if !response.status().is_success() {
         let error_text = response.text().await?;

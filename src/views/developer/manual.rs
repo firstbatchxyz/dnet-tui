@@ -1,6 +1,7 @@
-use crate::app::{App, AppState};
-use crate::model::AVAILABLE_MODELS;
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use super::DeveloperState;
+use crate::constants::AVAILABLE_MODELS;
+use crate::{App, AppState};
+use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::{
     Frame,
     layout::{Constraint, Layout, Rect},
@@ -10,12 +11,6 @@ use ratatui::{
 };
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum DeveloperState {
-    Menu,
-    ManualAssignment(ManualAssignmentState),
-}
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ManualAssignmentState {
@@ -42,8 +37,8 @@ pub enum ManualAssignmentState {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ShardInfo {
-    pub name: String,          // Full service name for API
-    pub instance: String,       // Short instance name for display
+    pub name: String,     // Full service name for API
+    pub instance: String, // Short instance name for display
     pub local_ip: String,
     pub server_port: u16,
     pub shard_port: u16,
@@ -52,7 +47,7 @@ pub struct ShardInfo {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct HealthResponse {
+struct HealthResponse {
     pub status: String,
     pub node_id: i32,
     pub running: bool,
@@ -83,66 +78,16 @@ struct DeviceInfo {
 
 #[derive(Debug, Serialize)]
 struct AssignmentInfo {
+    // FIXME: this should be named "instance"
     service: String,
     layers: Vec<Vec<u32>>,
     window_size: u32,
+    // FIXME: this should be named "next_instance"
     next_service: String,
 }
 
 impl App {
-    pub fn draw_developer(&mut self, frame: &mut Frame, state: &DeveloperState) {
-        match state {
-            DeveloperState::Menu => self.draw_developer_menu(frame),
-            DeveloperState::ManualAssignment(ma_state) => {
-                self.draw_manual_assignment(frame, ma_state)
-            }
-        }
-    }
-
-    fn draw_developer_menu(&mut self, frame: &mut Frame) {
-        let area = frame.area();
-
-        let vertical = Layout::vertical([
-            Constraint::Length(3), // Title
-            Constraint::Min(0),    // Content
-            Constraint::Length(3), // Footer
-        ]);
-        let [title_area, content_area, footer_area] = vertical.areas(area);
-
-        // Title
-        let title = Line::from("Developer Menu").bold().yellow().centered();
-        frame.render_widget(Paragraph::new(title), title_area);
-
-        // Menu items - just one option now
-        let menu_items = vec!["Manual Layer Assignment - Manually assign layers to shards"];
-
-        let items: Vec<ListItem> = menu_items
-            .iter()
-            .enumerate()
-            .map(|(i, item)| {
-                let style = if i == self.developer_menu_index {
-                    Style::default()
-                        .fg(Color::Black)
-                        .bg(Color::Yellow)
-                        .add_modifier(Modifier::BOLD)
-                } else {
-                    Style::default()
-                };
-                ListItem::new(*item).style(style)
-            })
-            .collect();
-
-        let list = List::new(items).block(Block::default().borders(Borders::ALL));
-        frame.render_widget(list, content_area);
-
-        // Footer
-        frame.render_widget(
-            Paragraph::new("Enter: Select | Esc: Back to main menu").centered(),
-            footer_area,
-        );
-    }
-
-    fn draw_manual_assignment(&mut self, frame: &mut Frame, state: &ManualAssignmentState) {
+    pub fn draw_manual_assignment(&mut self, frame: &mut Frame, state: &ManualAssignmentState) {
         let area = frame.area();
 
         let vertical = Layout::vertical([
@@ -202,16 +147,19 @@ impl App {
             }
             ManualAssignmentState::LoadingModel(model) => {
                 frame.render_widget(
-                    Paragraph::new(format!("Loading model {}...\nThis may take a few moments.", model))
-                        .block(Block::default().borders(Borders::ALL))
-                        .style(Style::default().fg(Color::Cyan))
-                        .centered(),
+                    Paragraph::new(format!(
+                        "Loading model {}...\nThis may take a few moments.",
+                        model
+                    ))
+                    .block(Block::default().borders(Borders::ALL))
+                    .style(Style::default().fg(Color::Cyan))
+                    .centered(),
                     content_area,
                 );
             }
             ManualAssignmentState::Success => {
                 frame.render_widget(
-                    Paragraph::new("✓ Manual topology prepared and model loaded successfully!")
+                    Paragraph::new("Manual topology prepared and model loaded successfully!")
                         .block(Block::default().borders(Borders::ALL))
                         .style(Style::default().fg(Color::Green))
                         .centered(),
@@ -272,7 +220,11 @@ impl App {
             })
             .collect();
 
-        let list = List::new(model_items).block(Block::default().borders(Borders::ALL).title("Select a model"));
+        let list = List::new(model_items).block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title("Select a model"),
+        );
 
         frame.render_widget(list, area);
     }
@@ -290,34 +242,36 @@ impl App {
         input_buffer: &str,
     ) {
         let chunks = Layout::vertical([
-            Constraint::Length(3),  // Model info
-            Constraint::Min(10),    // Shard list
-            Constraint::Length(5),  // Assignment status
+            Constraint::Length(3), // Model info
+            Constraint::Min(10),   // Shard list
+            Constraint::Length(5), // Assignment status
         ])
         .split(area);
 
         // Model info
-        let model_info = vec![
-            Line::from(format!("Model: {} | Total Layers: {}", model, num_layers)),
-        ];
+        let model_info = vec![Line::from(format!(
+            "Model: {} | Total Layers: {}",
+            model, num_layers
+        ))];
         frame.render_widget(
             Paragraph::new(model_info).block(Block::default().borders(Borders::ALL)),
             chunks[0],
         );
 
         // Split shards into two groups
-        let shard_chunks = Layout::horizontal([
-            Constraint::Percentage(50),
-            Constraint::Percentage(50),
-        ])
-        .split(chunks[1]);
+        let shard_chunks =
+            Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)])
+                .split(chunks[1]);
 
         // Unassigned shards
         let mut unassigned_items = Vec::new();
         let mut assigned_items = Vec::new();
 
         for (i, shard) in shards.iter().enumerate() {
-            let shard_layers = assignments.get(&shard.instance).cloned().unwrap_or_default();
+            let shard_layers = assignments
+                .get(&shard.instance)
+                .cloned()
+                .unwrap_or_default();
 
             let display_text = if shard_layers.is_empty() {
                 format!("{}", shard.instance)
@@ -327,9 +281,14 @@ impl App {
 
             let is_selected = i == selected_shard;
             let style = if is_selected && input_mode {
-                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD)
             } else if is_selected {
-                Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD)
+                Style::default()
+                    .fg(Color::Black)
+                    .bg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD)
             } else {
                 Style::default()
             };
@@ -347,17 +306,26 @@ impl App {
             }
         }
 
-        let unassigned_list = List::new(unassigned_items)
-            .block(Block::default().borders(Borders::ALL).title("Unassigned Shards"));
+        let unassigned_list = List::new(unassigned_items).block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title("Unassigned Shards"),
+        );
         frame.render_widget(unassigned_list, shard_chunks[0]);
 
-        let assigned_list = List::new(assigned_items)
-            .block(Block::default().borders(Borders::ALL).title("Assigned Shards"));
+        let assigned_list = List::new(assigned_items).block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title("Assigned Shards"),
+        );
         frame.render_widget(assigned_list, shard_chunks[1]);
 
         // Assignment status
         let assigned_count: usize = assignments.values().map(|v| v.len()).sum();
-        let all_layers: HashSet<u32> = assignments.values().flat_map(|v| v.iter().cloned()).collect();
+        let all_layers: HashSet<u32> = assignments
+            .values()
+            .flat_map(|v| v.iter().cloned())
+            .collect();
         let missing_layers = find_missing_layers(&all_layers, num_layers);
 
         let status_color = if missing_layers.is_empty() {
@@ -367,7 +335,10 @@ impl App {
         };
 
         let status_text = if missing_layers.is_empty() {
-            format!("✓ All {} layers assigned! Press 'C' to complete.", num_layers)
+            format!(
+                "✓ All {} layers assigned! Press 'C' to complete.",
+                num_layers
+            )
         } else {
             format!(
                 "Assigned: {}/{} | Missing: {}",
@@ -385,61 +356,34 @@ impl App {
         );
     }
 
-    pub fn handle_developer_input(&mut self, key: KeyEvent, state: &DeveloperState) {
+    pub(super) fn handle_manual_assignment_input(
+        &mut self,
+        key: KeyEvent,
+        state: &ManualAssignmentState,
+    ) {
         match state {
-            DeveloperState::Menu => self.handle_developer_menu_input(key),
-            DeveloperState::ManualAssignment(ma_state) => {
-                self.handle_manual_assignment_input(key, ma_state)
-            }
-        }
-    }
-
-    fn handle_developer_menu_input(&mut self, key: KeyEvent) {
-        match (key.modifiers, key.code) {
-            (_, KeyCode::Esc) => {
-                self.state = AppState::Menu;
-                self.developer_menu_index = 0;
-            }
-            (KeyModifiers::CONTROL, KeyCode::Char('c') | KeyCode::Char('C')) => self.quit(),
-            (_, KeyCode::Enter) => {
-                // Only one option now - Manual Layer Assignment
-                if self.developer_menu_index == 0 {
+            ManualAssignmentState::SelectingModel => match (key.modifiers, key.code) {
+                (_, KeyCode::Esc) => {
+                    self.state = AppState::Developer(DeveloperState::Menu);
+                }
+                (_, KeyCode::Up) => {
+                    if self.selected_model > 0 {
+                        self.selected_model -= 1;
+                    }
+                }
+                (_, KeyCode::Down) => {
+                    if self.selected_model < AVAILABLE_MODELS.len() - 1 {
+                        self.selected_model += 1;
+                    }
+                }
+                (_, KeyCode::Enter) => {
+                    let model = AVAILABLE_MODELS[self.selected_model].to_string();
                     self.state = AppState::Developer(DeveloperState::ManualAssignment(
-                        ManualAssignmentState::SelectingModel,
+                        ManualAssignmentState::FetchingShards(model),
                     ));
-                    self.selected_model = 0;
                 }
-            }
-            _ => {}
-        }
-    }
-
-    fn handle_manual_assignment_input(&mut self, key: KeyEvent, state: &ManualAssignmentState) {
-        match state {
-            ManualAssignmentState::SelectingModel => {
-                match (key.modifiers, key.code) {
-                    (_, KeyCode::Esc) => {
-                        self.state = AppState::Developer(DeveloperState::Menu);
-                    }
-                    (_, KeyCode::Up) => {
-                        if self.selected_model > 0 {
-                            self.selected_model -= 1;
-                        }
-                    }
-                    (_, KeyCode::Down) => {
-                        if self.selected_model < AVAILABLE_MODELS.len() - 1 {
-                            self.selected_model += 1;
-                        }
-                    }
-                    (_, KeyCode::Enter) => {
-                        let model = AVAILABLE_MODELS[self.selected_model].to_string();
-                        self.state = AppState::Developer(DeveloperState::ManualAssignment(
-                            ManualAssignmentState::FetchingShards(model),
-                        ));
-                    }
-                    _ => {}
-                }
-            }
+                _ => {}
+            },
             ManualAssignmentState::AssigningLayers {
                 model,
                 num_layers,
@@ -468,7 +412,8 @@ impl App {
                             // Parse and save layers
                             if let Some(layers) = parse_layer_input(&input_buffer, num_layers) {
                                 if selected_shard < shards.len() {
-                                    assignments.insert(shards[selected_shard].instance.clone(), layers);
+                                    assignments
+                                        .insert(shards[selected_shard].instance.clone(), layers);
                                 }
                             }
                             input_mode = false;
@@ -477,7 +422,9 @@ impl App {
                         KeyCode::Backspace => {
                             input_buffer.pop();
                         }
-                        KeyCode::Char(c) if c.is_ascii_digit() || c == ',' || c == '-' || c == ' ' => {
+                        KeyCode::Char(c)
+                            if c.is_ascii_digit() || c == ',' || c == '-' || c == ' ' =>
+                        {
                             input_buffer.push(c);
                         }
                         _ => {}
@@ -507,7 +454,8 @@ impl App {
                         }
                         (_, KeyCode::Char('c') | KeyCode::Char('C')) => {
                             // Complete assignment
-                            let all_layers: HashSet<u32> = assignments.values()
+                            let all_layers: HashSet<u32> = assignments
+                                .values()
                                 .flat_map(|v| v.iter().cloned())
                                 .collect();
                             let missing_layers = find_missing_layers(&all_layers, num_layers);
@@ -637,9 +585,7 @@ fn find_missing_layers(assigned: &HashSet<u32>, total: u32) -> Vec<u32> {
     missing
 }
 
-fn determine_next_services(
-    assignments: &HashMap<String, Vec<u32>>,
-) -> HashMap<String, String> {
+fn determine_next_services(assignments: &HashMap<String, Vec<u32>>) -> HashMap<String, String> {
     let mut next_services = HashMap::new();
 
     // Create a map of first_layer -> shard
@@ -673,7 +619,10 @@ fn determine_next_services(
 
 // API functions
 impl ManualAssignmentState {
-    pub async fn fetch_shards_with_model(api_url: &str, model: &str) -> color_eyre::Result<(Vec<ShardInfo>, u32)> {
+    pub async fn fetch_shards_with_model(
+        api_url: &str,
+        model: &str,
+    ) -> color_eyre::Result<(Vec<ShardInfo>, u32)> {
         // Get model info to know number of layers
         let num_layers = get_model_layers(model);
 
@@ -692,21 +641,25 @@ impl ManualAssignmentState {
                 }
 
                 let instance = device["instance"].as_str().unwrap_or("").to_string();
-                let local_ip = device["local_ip"].as_str().unwrap_or("127.0.0.1").to_string();
+                let local_ip = device["local_ip"]
+                    .as_str()
+                    .unwrap_or("127.0.0.1")
+                    .to_string();
                 let server_port = device["server_port"].as_u64().unwrap_or(0) as u16;
                 let shard_port = device["shard_port"].as_u64().unwrap_or(0) as u16;
 
                 // Get health info if possible
                 let health_url = format!("http://{}:{}/health", local_ip, server_port);
-                let (model_loaded, assigned_layers) = if let Ok(health_response) = reqwest::get(&health_url).await {
-                    if let Ok(health) = health_response.json::<HealthResponse>().await {
-                        (health.model_loaded, health.assigned_layers)
+                let (model_loaded, assigned_layers) =
+                    if let Ok(health_response) = reqwest::get(&health_url).await {
+                        if let Ok(health) = health_response.json::<HealthResponse>().await {
+                            (health.model_loaded, health.assigned_layers)
+                        } else {
+                            (false, Vec::new())
+                        }
                     } else {
                         (false, Vec::new())
-                    }
-                } else {
-                    (false, Vec::new())
-                };
+                    };
 
                 shards.push(ShardInfo {
                     name: key.clone(), // Full service name for API
@@ -754,7 +707,10 @@ impl ManualAssignmentState {
                     let next_service = next_services
                         .get(&shard.instance)
                         .and_then(|next_instance| {
-                            shards.iter().find(|s| s.instance == *next_instance).map(|s| s.name.clone())
+                            shards
+                                .iter()
+                                .find(|s| s.instance == *next_instance)
+                                .map(|s| s.name.clone())
                         })
                         .unwrap_or_else(|| shard.name.clone());
 
@@ -783,7 +739,10 @@ impl ManualAssignmentState {
             Ok(())
         } else {
             let error_text = response.text().await?;
-            Err(color_eyre::eyre::eyre!("Failed to submit topology: {}", error_text))
+            Err(color_eyre::eyre::eyre!(
+                "Failed to submit topology: {}",
+                error_text
+            ))
         }
     }
 }
@@ -794,7 +753,9 @@ fn get_model_layers(model: &str) -> u32 {
     // You might want to get this from an API endpoint
     match model {
         "Qwen/Qwen3-4B-MLX-4bit" | "Qwen/Qwen3-4B-MLX-8bit" => 36,
-        "Qwen/Qwen3-30B-A3B-MLX-8bit" | "Qwen/Qwen3-30B-A3B-MLX-bf16" | "Qwen/Qwen3-30B-A3B-MLX-6bit" => 30,
+        "Qwen/Qwen3-30B-A3B-MLX-8bit"
+        | "Qwen/Qwen3-30B-A3B-MLX-bf16"
+        | "Qwen/Qwen3-30B-A3B-MLX-6bit" => 30,
         "Qwen/Qwen3-32B-MLX-bf16" | "Qwen/Qwen3-32B-MLX-8bit" | "Qwen/Qwen3-32B-MLX-6bit" => 32,
         "NousResearch/Hermes-4-70B" => 70,
         "openai/gpt-oss-120b" => 120,

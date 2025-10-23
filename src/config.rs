@@ -18,7 +18,7 @@ impl Default for Config {
 }
 
 impl Config {
-    /// Load config from either current directory or ~/.dria/dnet/ directory
+    /// Load config from either current directory or `~/.dria/dnet/` directory
     pub fn load() -> color_eyre::Result<Self> {
         // try current directory first
         let local_path = PathBuf::from("dnet.json");
@@ -56,7 +56,9 @@ impl Config {
         Ok(())
     }
 
-    /// Get the path to `~/.dria/dnet/dnet.json`
+    /// Get the path to `$HOME/.dria/dnet/dnet.json`
+    ///
+    /// FIXME: this is not cross-platform
     fn dria_config_path() -> PathBuf {
         let mut path = match std::env::var("HOME") {
             Ok(home) => PathBuf::from(home),

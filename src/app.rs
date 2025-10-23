@@ -1,26 +1,12 @@
 use crate::chat::ChatState;
 use crate::config::Config;
+use crate::developer::DeveloperState;
+use crate::model::{LoadModelState, UnloadModelState};
 use crate::settings::SettingsField;
 use crate::topology::TopologyState;
 use crossterm::event::EventStream;
 use std::time::Instant;
 use tokio::sync::mpsc;
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum LoadModelState {
-    SelectingModel,
-    PreparingTopology(String /* model name */),
-    LoadingModel(String /* model name */),
-    Error(String),
-    Success(crate::model::LoadModelResponse),
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum UnloadModelState {
-    Unloading,
-    Error(String),
-    Success,
-}
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum AppState {
@@ -30,44 +16,14 @@ pub enum AppState {
     ShardView(String /* shard name */),
     LoadModel(LoadModelState),
     UnloadModel(UnloadModelState),
-    Developer(crate::developer::DeveloperState),
+    Developer(DeveloperState),
     Chat(ChatState),
 }
 
 impl AppState {
-    /// Check if the state is in `Loading` topology state.
-    ///
-    /// This should trigger [`Self::load_topology`] in the main loop.
-    pub fn is_loading_topology(&self) -> bool {
-        matches!(self, Self::TopologyView(TopologyState::Loading))
-    }
-
-    /// Load topology asynchronously and update state.
-    pub async fn load_topology(&mut self, api_url: &str) {
-        match TopologyState::fetch(api_url).await {
-            Ok(topology) => {
-                *self = Self::TopologyView(TopologyState::Loaded(topology));
-            }
-            Err(err) => {
-                // Check if the error is likely due to no model being loaded
-                let error_msg = err.to_string();
-                let friendly_msg = if error_msg.contains("No topology configured")
-                    || error_msg.contains("No topology found")
-                    || error_msg.contains("model not loaded")
-                    || error_msg.contains("prepare_topology")
-                    || error_msg.contains("404")
-                    || error_msg.contains("Not Found") {
-                    "No topology configured yet. Please load a model first to create a topology.".to_string()
-                } else if error_msg.contains("connection")
-                    || error_msg.contains("refused")
-                    || error_msg.contains("error sending request") {
-                    format!("Cannot connect to API server at {}. Please check your settings and ensure the server is running.", api_url)
-                } else {
-                    format!("Error: {}", error_msg)
-                };
-                *self = Self::TopologyView(TopologyState::Error(friendly_msg));
-            }
-        }
+    /// Set the state to `Menu`, useful for "go-back" actions.
+    pub fn reset_to_menu(&mut self) {
+        *self = Self::Menu;
     }
 }
 
@@ -129,27 +85,6 @@ impl App {
             chat_stream_rx: None,
             model_loaded: false,
         })
-    }
-
-    /// Get sliding window of text based on elapsed time
-    pub fn get_sliding_text(&self, full_text: &str, window_size: usize) -> String {
-        if full_text.len() <= window_size {
-            // return full text if it fits
-            full_text.to_string()
-        } else {
-            // calculate offset based on elapsed milliseconds
-            let elapsed_millis = self.animation_start.elapsed().as_millis() as usize;
-            let offset = (elapsed_millis / 500) % full_text.len();
-
-            // create sliding window by cycling through the text
-            // TODO: do this more performant
-            let mut result = String::new();
-            for i in 0..window_size {
-                let idx = (offset + i) % full_text.len();
-                result.push(full_text.chars().nth(idx).unwrap_or(' '));
-            }
-            result
-        }
     }
 
     /// Set running to false to quit the application.

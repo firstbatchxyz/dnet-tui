@@ -1,7 +1,7 @@
-use std::env;
-
-use crate::app::{App, AppState};
+use crate::developer::DeveloperState;
+use crate::model::{LoadModelState, UnloadModelState};
 use crate::topology::TopologyState;
+use crate::{App, AppState};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{
     Frame,
@@ -58,7 +58,13 @@ impl MenuItem {
     pub fn description(&self, model_loaded: bool) -> &str {
         match self {
             // MenuItem::ViewDevices => "View discovered devices",
-            MenuItem::Chat => if model_loaded { "Chat with loaded model" } else { "Chat (no model loaded)" },
+            MenuItem::Chat => {
+                if model_loaded {
+                    "Chat with loaded model"
+                } else {
+                    "Chat (no model loaded)"
+                }
+            }
             MenuItem::ViewTopology => "View dnet topology",
             MenuItem::LoadModel => "Prepare & load a model",
             MenuItem::UnloadModel => "Unload current model",
@@ -88,28 +94,10 @@ impl App {
         let area = frame.area();
 
         // ASCII Art
-        #[rustfmt::skip]
-        let ascii_art = vec![
-          Line::from("                                                                             "),
-          Line::from("      00000    000000                                                        "),
-          Line::from("   000    000000000000000   0000000000000000      000000000000          00000"),
-          Line::from(" 000       000000   000000000   00000    00000 000    00000            000000"),
-          Line::from("00        00000     000000     00000    00000000     00000           00000000"),
-          Line::from("00       00000     0000000    00000    00000000     00000           00 000000"),
-          Line::from("00      00000     0000000    0000000000000  000    00000          00  0000000"),
-          Line::from(" 000   00000     0000000    00000   000000  00    000000        000   000000 "),
-          Line::from("      00000      00000     00000    00000   00   00000000      00    0000000 "),
-          Line::from("     00000     000000     000000   000000    00 000000  0000000000000 00000  "),
-          Line::from("    00000    0000000     00000     00000 0     000000      000        00000  "),
-          Line::from(" 0000000   00000       0000000    00000000  000000000    000        0000000  "),
-          Line::from("                                                                             "),
-          Line::from(""),
-          Line::from("     ⠀⠀⣠⣤⠐⣦⡀⠀⠴⠢⣤⣄⠀⢀⠄⠀⠀⢠⣶⠂⠀⢐⠆⢀⡤⢠⣤⠂⢤"),
-          Line::from("     ⠀⣰⡟⠀⢠⣿⠁⠀⠀⠌⢹⣿⢀⠎⠀⡄⢠⣿⠃⡴⠀⠀⠀⠊⢀⣾⠃⠀⠁"),
-          Line::from("    ⢀⣰⡟⢀⡴⠟⠁⠀⢀⠈⠀⠘⣿⠏⠀⠀⣰⣿⡁⢀⡰⠀⠀⠀⣠⣿⠃⠀⠀⠀"),
-          Line::from(""),
-          Line::from(format!("                             v{:<5}                                            ", env!("CARGO_PKG_VERSION"))),
-        ];
+        let ascii_art: Vec<_> = crate::constants::MENU_BANNER
+            .map(|line| Line::from(line).centered())
+            .into_iter()
+            .collect();
 
         // Create layout
         let vertical = Layout::vertical([
@@ -176,7 +164,7 @@ impl App {
         frame.render_widget(List::new(menu_items), centered_menu_area);
 
         // Footer
-        let footer_text = format!("API: {}  |  Press Esc or q to quit", self.config.api_url());
+        let footer_text = format!("API: {}  |  Press Esc quit", self.config.api_url());
         frame.render_widget(
             Paragraph::new(footer_text)
                 .style(Style::default().fg(Color::DarkGray))
@@ -187,7 +175,7 @@ impl App {
 
     pub fn handle_menu_input(&mut self, key: KeyEvent) {
         match (key.modifiers, key.code) {
-            (_, KeyCode::Esc | KeyCode::Char('q'))
+            (_, KeyCode::Esc)
             | (KeyModifiers::CONTROL, KeyCode::Char('c') | KeyCode::Char('C')) => self.quit(),
             (_, KeyCode::Up) => self.menu_up(),
             (_, KeyCode::Down) => self.menu_down(),
@@ -227,12 +215,12 @@ impl App {
                 // Note: We'll need to handle this in the main loop
             }
             MenuItem::LoadModel => {
-                self.state = AppState::LoadModel(crate::app::LoadModelState::SelectingModel);
+                self.state = AppState::LoadModel(LoadModelState::SelectingModel);
                 self.selected_model = 0;
                 self.status_message.clear();
             }
             MenuItem::UnloadModel => {
-                self.state = AppState::UnloadModel(crate::app::UnloadModelState::Unloading);
+                self.state = AppState::UnloadModel(UnloadModelState::Unloading);
                 self.status_message.clear();
             }
             MenuItem::Settings => {
@@ -241,7 +229,7 @@ impl App {
                 self.status_message.clear();
             }
             MenuItem::Developer => {
-                self.state = AppState::Developer(crate::developer::DeveloperState::Menu);
+                self.state = AppState::Developer(DeveloperState::Menu);
                 self.developer_menu_index = 0;
             }
             MenuItem::Exit => self.quit(),
