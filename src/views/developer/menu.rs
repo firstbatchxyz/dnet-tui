@@ -7,6 +7,8 @@ use ratatui::{
     widgets::{Block, Borders, List, ListItem, Paragraph},
 };
 
+use crate::AppState;
+
 use super::DeveloperState;
 
 impl crate::App {
@@ -56,14 +58,14 @@ impl crate::App {
     pub(super) fn handle_developer_menu_input(&mut self, key: KeyEvent) {
         match (key.modifiers, key.code) {
             (_, KeyCode::Esc) => {
-                self.state = crate::AppState::Menu;
+                self.state = AppState::Menu;
                 self.developer_menu_index = 0;
             }
             (KeyModifiers::CONTROL, KeyCode::Char('c') | KeyCode::Char('C')) => self.quit(),
             (_, KeyCode::Enter) => {
                 // Only one option now - Manual Layer Assignment
                 if self.developer_menu_index == 0 {
-                    self.state = crate::AppState::Developer(DeveloperState::ManualAssignment(
+                    self.state = AppState::Developer(DeveloperState::ManualAssignment(
                         super::ManualAssignmentState::SelectingModel,
                     ));
                     self.selected_model = 0;

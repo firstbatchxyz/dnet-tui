@@ -32,17 +32,17 @@ const FPS_RATE: Duration = Duration::from_millis(1000 / 60);
 impl App {
     /// Run the application's main loop.
     pub async fn run(mut self, mut terminal: DefaultTerminal) -> Result<()> {
-        self.running = true;
+        self.is_running = true;
 
         // check if a model is already loaded on startup
         // TODO: this should check for topology instead, which may enable / disable view topology button too
         // TODO: maybe this should be done ONCE as the user opens the menu for the first time?
-        self.model_loaded = chat::is_model_loaded(&self.config.api_url()).await;
+        self.is_model_loaded = chat::is_model_loaded(&self.config.api_url()).await;
 
         // create a ticker for animation updates
         let mut interval = tokio::time::interval(FPS_RATE);
 
-        while self.running {
+        while self.is_running {
             // draw first (to disguise async stuff in ticks)
             terminal.draw(|frame| self.draw(frame))?;
 

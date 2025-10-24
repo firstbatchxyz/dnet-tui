@@ -21,7 +21,7 @@ pub enum AppState {
 #[derive(Debug)]
 pub struct App {
     /// Is the application running?
-    pub running: bool,
+    pub is_running: bool,
     /// Event stream.
     pub event_stream: EventStream,
     /// Configuration.
@@ -51,7 +51,7 @@ pub struct App {
     /// Chat message receiver for streaming responses
     pub chat_stream_rx: Option<mpsc::UnboundedReceiver<String>>,
     /// Whether a model is currently loaded
-    pub model_loaded: bool,
+    pub is_model_loaded: bool,
 }
 
 impl App {
@@ -59,7 +59,7 @@ impl App {
     pub fn new() -> color_eyre::Result<Self> {
         let config = Config::load()?;
         Ok(Self {
-            running: false,
+            is_running: false,
             event_stream: EventStream::new(),
             temp_config: config.clone(),
             config,
@@ -74,12 +74,12 @@ impl App {
             animation_start: Instant::now(),
             pending_chat_message: None,
             chat_stream_rx: None,
-            model_loaded: false,
+            is_model_loaded: false,
         })
     }
 
     /// Set running to false to quit the application.
     pub fn quit(&mut self) {
-        self.running = false;
+        self.is_running = false;
     }
 }

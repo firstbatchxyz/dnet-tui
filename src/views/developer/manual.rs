@@ -1,7 +1,7 @@
 use super::DeveloperState;
-use crate::common::DeviceProperties;
+use crate::AppState;
+use crate::common::{DeviceProperties, ShardHealthResponse};
 use crate::constants::AVAILABLE_MODELS;
-use crate::{AppState, common::ShardHealthResponse};
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::{
     Frame,
@@ -744,11 +744,8 @@ impl crate::App {
         match state {
             ManualAssignmentState::FetchingShards(model) => {
                 let model = model.clone();
-                match ManualAssignmentState::fetch_shards_with_model(
-                    &self.config.api_url(),
-                    &model,
-                )
-                .await
+                match ManualAssignmentState::fetch_shards_with_model(&self.config.api_url(), &model)
+                    .await
                 {
                     Ok((shards, num_layers)) => {
                         self.state = AppState::Developer(DeveloperState::ManualAssignment(
@@ -806,7 +803,7 @@ impl crate::App {
                         self.state = AppState::Developer(DeveloperState::ManualAssignment(
                             ManualAssignmentState::Success,
                         ));
-                        self.model_loaded = true; // Set model loaded flag
+                        self.is_model_loaded = true; // Set model loaded flag
                     }
                     Err(err) => {
                         self.state = AppState::Developer(DeveloperState::ManualAssignment(

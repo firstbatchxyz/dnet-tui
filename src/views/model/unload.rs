@@ -122,7 +122,7 @@ impl crate::App {
                     self.state = crate::AppState::Model(super::ModelState::Unloading(
                         UnloadModelState::Success,
                     ));
-                    self.model_loaded = false; // Clear model loaded flag
+                    self.is_model_loaded = false; // Clear model loaded flag
                 }
                 Err(err) => {
                     self.state = crate::AppState::Model(super::ModelState::Unloading(

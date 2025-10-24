@@ -122,28 +122,28 @@ impl App {
             .enumerate()
             .map(|(i, item)| {
                 // decide style based on selection and availability
-                let is_chat = matches!(item, MenuItem::Chat);
-                let is_disabled = is_chat && !self.model_loaded;
+                let is_disabled = (matches!(item, MenuItem::Chat | MenuItem::UnloadModel)
+                    && !self.is_model_loaded);
+                let is_selected = i == self.selected_menu;
 
-                let style = if i == self.selected_menu {
-                    if is_disabled {
-                        Style::default()
-                            .fg(Color::DarkGray)
-                            .bg(Color::Gray)
-                            .add_modifier(Modifier::BOLD)
-                    } else {
-                        Style::default()
-                            .fg(Color::Black)
-                            .bg(Color::Cyan)
-                            .add_modifier(Modifier::BOLD)
-                    }
-                } else if is_disabled {
-                    Style::default().fg(Color::DarkGray)
-                } else {
-                    Style::default()
+                let style = match (is_selected, is_disabled) {
+                    // selected & disable
+                    (true, true) => Style::default()
+                        .fg(Color::DarkGray)
+                        .bg(Color::Gray)
+                        .add_modifier(Modifier::BOLD),
+                    // selected & available
+                    (true, false) => Style::default()
+                        .fg(Color::Black)
+                        .bg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD),
+                    // not selected & disabled
+                    (false, true) => Style::default().fg(Color::DarkGray),
+                    // not selected & available
+                    (false, false) => Style::default(),
                 };
 
-                ListItem::new(item.fmt(self.model_loaded)).style(style)
+                ListItem::new(item.fmt(self.is_model_loaded)).style(style)
             })
             .collect();
 
@@ -158,7 +158,7 @@ impl App {
         .areas(menu_area);
 
         // Calculate horizontal centering for menu
-        let menu_width = MenuItem::total_width(self.model_loaded);
+        let menu_width = MenuItem::total_width(self.is_model_loaded);
         let left_padding = (vertical_centered_area.width.saturating_sub(menu_width)) / 2;
         let [_, centered_menu_area, _] = Layout::horizontal([
             Constraint::Length(left_padding),
@@ -210,7 +210,7 @@ impl App {
             //     // TODO: Implement devices view
             // }
             MenuItem::Chat => {
-                if self.model_loaded {
+                if self.is_model_loaded {
                     self.state = AppState::Chat(crate::chat::ChatState::new());
                 } else {
                     // if model not loaded, do nothing (item is disabled)
@@ -230,7 +230,7 @@ impl App {
                 self.status_message.clear();
             }
             MenuItem::UnloadModel => {
-                if self.model_loaded {
+                if self.is_model_loaded {
                     self.state = AppState::Model(super::model::ModelState::Unloading(
                         UnloadModelState::Unloading,
                     ));

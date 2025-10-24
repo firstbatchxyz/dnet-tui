@@ -325,7 +325,7 @@ impl App {
                                 self.state = AppState::Model(super::ModelState::Loading(
                                     LoadModelState::Success(response),
                                 ));
-                                self.model_loaded = true; // Set model loaded flag
+                                self.is_model_loaded = true; // Set model loaded flag
                             }
                             Err(err) => {
                                 self.state = AppState::Model(super::ModelState::Loading(

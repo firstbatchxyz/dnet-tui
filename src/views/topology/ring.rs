@@ -19,92 +19,6 @@ pub enum TopologyViewState {
     Error(String),
 }
 
-impl crate::AppState {
-    /// Load topology asynchronously and update state.
-    pub async fn load_topology(&mut self, api_url: &str) {
-        match TopologyViewState::fetch(api_url).await {
-            Ok(topology) => {
-                *self = Self::Topology(super::TopologyState::Ring(TopologyViewState::Loaded(
-                    topology,
-                )));
-            }
-            Err(err) => {
-                // TODO: handle this better
-                // Check if the error is likely due to no model being loaded
-                let error_msg = err.to_string();
-                let friendly_msg = if error_msg.contains("No topology configured")
-                    || error_msg.contains("No topology found")
-                    || error_msg.contains("model not loaded")
-                    || error_msg.contains("prepare_topology")
-                    || error_msg.contains("404")
-                    || error_msg.contains("Not Found")
-                {
-                    "No topology configured yet. Please load a model first to create a topology."
-                        .to_string()
-                } else if error_msg.contains("connection")
-                    || error_msg.contains("refused")
-                    || error_msg.contains("error sending request")
-                {
-                    format!(
-                        "Cannot connect to API server at {}. Please check your settings and ensure the server is running.",
-                        api_url
-                    )
-                } else {
-                    format!("Error: {}", error_msg)
-                };
-                *self = Self::Topology(super::TopologyState::Ring(TopologyViewState::Error(
-                    friendly_msg,
-                )));
-            }
-        }
-    }
-}
-
-impl TopologyViewState {
-    /// Fetch topology from the API
-    pub async fn fetch(api_url: &str) -> color_eyre::Result<TopologyInfo> {
-        let url = format!("{}/v1/topology", api_url);
-        let response = reqwest::get(&url).await?;
-
-        // Get the response text first, regardless of status
-        let status = response.status();
-        let text = response.text().await?;
-
-        // Check if the response contains an error detail message (for any status code)
-        if let Ok(error_response) = serde_json::from_str::<serde_json::Value>(&text) {
-            if let Some(detail) = error_response.get("detail").and_then(|d| d.as_str()) {
-                if detail.contains("No topology configured") || detail.contains("prepare_topology")
-                {
-                    return Err(color_eyre::eyre::eyre!("No topology configured"));
-                }
-                // For other detail messages, include them in the error
-                if !status.is_success() {
-                    return Err(color_eyre::eyre::eyre!("{}", detail));
-                }
-            }
-        }
-
-        // If we couldn't parse a detail message and status is not success, return generic error
-        if !status.is_success() {
-            if status == reqwest::StatusCode::NOT_FOUND {
-                return Err(color_eyre::eyre::eyre!(
-                    "No topology found - model not loaded"
-                ));
-            }
-            return Err(color_eyre::eyre::eyre!(
-                "API returned error: {} {}",
-                status.as_u16(),
-                status.canonical_reason().unwrap_or("Unknown error")
-            ));
-        }
-
-        // Try to parse as successful topology response
-        let topology: TopologyInfo = serde_json::from_str(&text)
-            .map_err(|e| color_eyre::eyre::eyre!("Failed to parse topology response: {}", e))?;
-        Ok(topology)
-    }
-}
-
 impl TopologyInfo {
     /// Format layer assignments compactly (e.g., [0..11, 12..23, 24..35])
     pub fn format_layers(layers: &[Vec<u32>]) -> String {
@@ -478,7 +392,46 @@ impl crate::App {
     /// Handle async operations for topology ring state (called during tick).
     pub(super) async fn tick_topology_ring(&mut self, state: &TopologyViewState) {
         if matches!(state, TopologyViewState::Loading) {
-            self.state.load_topology(&self.config.api_url()).await;
+            self.load_topology().await;
+        }
+    }
+
+    /// Load topology asynchronously and update state.
+    async fn load_topology(&mut self) {
+        match TopologyInfo::fetch(&self.config.api_url()).await {
+            Ok(topology) => {
+                self.state = AppState::Topology(super::TopologyState::Ring(
+                    TopologyViewState::Loaded(topology),
+                ));
+            }
+            Err(err) => {
+                // TODO: handle this better
+                // Check if the error is likely due to no model being loaded
+                let error_msg = err.to_string();
+                let friendly_msg = if error_msg.contains("No topology configured")
+                    || error_msg.contains("No topology found")
+                    || error_msg.contains("model not loaded")
+                    || error_msg.contains("prepare_topology")
+                    || error_msg.contains("404")
+                    || error_msg.contains("Not Found")
+                {
+                    "No topology configured yet. Please load a model first to create a topology."
+                        .to_string()
+                } else if error_msg.contains("connection")
+                    || error_msg.contains("refused")
+                    || error_msg.contains("error sending request")
+                {
+                    format!(
+                        "Cannot connect to API server. Please check your settings and ensure the server is running.",
+                    )
+                } else {
+                    format!("Error: {}", error_msg)
+                };
+
+                self.state = AppState::Topology(super::TopologyState::Ring(
+                    TopologyViewState::Error(friendly_msg),
+                ));
+            }
         }
     }
 }
@@ -491,7 +444,7 @@ mod tests {
     #[ignore = "run manually"]
     async fn test_fetch_topology() {
         let api_url = "http://localhost:8080";
-        let topology = TopologyViewState::fetch(api_url).await;
+        let topology = TopologyInfo::fetch(api_url).await;
         println!("{:#?}", topology);
         assert!(topology.is_ok());
     }
