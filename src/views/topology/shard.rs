@@ -59,7 +59,7 @@ impl crate::App {
                 // go back to topology view - restore the topology state
                 if let AppState::Topology(TopologyState::Shard(topology, _)) = &self.state {
                     self.state = AppState::Topology(super::TopologyState::Ring(
-                        super::TopologyViewState::Loaded(topology.clone()),
+                        super::TopologyRingState::Loaded(topology.clone()),
                     ));
                 }
             }

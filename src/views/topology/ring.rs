@@ -13,7 +13,7 @@ use ratatui::{
 };
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum TopologyViewState {
+pub enum TopologyRingState {
     Loading,
     Loaded(TopologyInfo),
     Error(String),
@@ -38,7 +38,7 @@ impl TopologyInfo {
     }
 }
 impl crate::App {
-    pub(super) fn draw_topology_ring_view(&mut self, frame: &mut Frame, state: &TopologyViewState) {
+    pub(super) fn draw_topology_ring_view(&mut self, frame: &mut Frame, state: &TopologyRingState) {
         let area = frame.area();
 
         let vertical = Layout::vertical([
@@ -54,7 +54,7 @@ impl crate::App {
 
         // Content
         match state {
-            TopologyViewState::Loading => {
+            TopologyRingState::Loading => {
                 frame.render_widget(
                     Paragraph::new("Loading topology...")
                         .block(Block::bordered())
@@ -62,7 +62,7 @@ impl crate::App {
                     content_area,
                 );
             }
-            TopologyViewState::Error(err) => {
+            TopologyRingState::Error(err) => {
                 // Check if it's a "no topology" message and style accordingly
                 let (text, style) = if err.contains("No topology configured")
                     || err.contains("No topology available")
@@ -123,14 +123,14 @@ impl crate::App {
                     content_area,
                 );
             }
-            TopologyViewState::Loaded(topology) => {
+            TopologyRingState::Loaded(topology) => {
                 self.draw_topology_ring(frame, content_area, topology);
             }
         }
 
         // Footer
         let footer_text = match state {
-            TopologyViewState::Loaded(_) => {
+            TopologyRingState::Loaded(_) => {
                 "Use ↑↓ to select device  |  Enter to interact  |  Esc to go back"
             }
             _ => "Press Esc to go back",
@@ -349,7 +349,7 @@ impl crate::App {
     }
 
     fn topology_device_up(&mut self) {
-        if let AppState::Topology(super::TopologyState::Ring(TopologyViewState::Loaded(topology))) =
+        if let AppState::Topology(super::TopologyState::Ring(TopologyRingState::Loaded(topology))) =
             &self.state
         {
             let device_count = topology.devices.len();
@@ -365,7 +365,7 @@ impl crate::App {
     }
 
     fn topology_device_down(&mut self) {
-        if let AppState::Topology(super::TopologyState::Ring(TopologyViewState::Loaded(topology))) =
+        if let AppState::Topology(super::TopologyState::Ring(TopologyRingState::Loaded(topology))) =
             &self.state
         {
             let device_count = topology.devices.len();
@@ -377,7 +377,7 @@ impl crate::App {
     }
 
     fn open_shard_interaction(&mut self) {
-        if let AppState::Topology(super::TopologyState::Ring(TopologyViewState::Loaded(topology))) =
+        if let AppState::Topology(super::TopologyState::Ring(TopologyRingState::Loaded(topology))) =
             &self.state
         {
             if let Some(device) = topology.devices.get(self.selected_device) {
@@ -390,8 +390,8 @@ impl crate::App {
     }
 
     /// Handle async operations for topology ring state (called during tick).
-    pub(super) async fn tick_topology_ring(&mut self, state: &TopologyViewState) {
-        if matches!(state, TopologyViewState::Loading) {
+    pub(super) async fn tick_topology_ring(&mut self, state: &TopologyRingState) {
+        if matches!(state, TopologyRingState::Loading) {
             self.load_topology().await;
         }
     }
@@ -401,7 +401,7 @@ impl crate::App {
         match TopologyInfo::fetch(&self.config.api_url()).await {
             Ok(topology) => {
                 self.state = AppState::Topology(super::TopologyState::Ring(
-                    TopologyViewState::Loaded(topology),
+                    TopologyRingState::Loaded(topology),
                 ));
             }
             Err(err) => {
@@ -429,7 +429,7 @@ impl crate::App {
                 };
 
                 self.state = AppState::Topology(super::TopologyState::Ring(
-                    TopologyViewState::Error(friendly_msg),
+                    TopologyRingState::Error(friendly_msg),
                 ));
             }
         }

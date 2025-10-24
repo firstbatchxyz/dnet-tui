@@ -300,9 +300,9 @@ impl App {
 
     fn start_model_load(&mut self) {
         let model = AVAILABLE_MODELS[self.selected_model].to_string();
-        self.state = AppState::Model(super::ModelState::Loading(
-            LoadModelState::PreparingTopology(model),
-        ));
+        self.state = AppState::Model(super::ModelState::Load(LoadModelState::PreparingTopology(
+            model,
+        )));
     }
 
     /// Handle async operations for load model state (called during tick).
@@ -313,7 +313,7 @@ impl App {
                     Ok(_topology) => {
                         // Move to loading model state and trigger load
                         let model_name = model.clone();
-                        self.state = AppState::Model(super::ModelState::Loading(
+                        self.state = AppState::Model(super::ModelState::Load(
                             LoadModelState::LoadingModel(model_name.clone()),
                         ));
 
@@ -322,20 +322,20 @@ impl App {
                             .await
                         {
                             Ok(response) => {
-                                self.state = AppState::Model(super::ModelState::Loading(
+                                self.state = AppState::Model(super::ModelState::Load(
                                     LoadModelState::Success(response),
                                 ));
                                 self.is_model_loaded = true; // Set model loaded flag
                             }
                             Err(err) => {
-                                self.state = AppState::Model(super::ModelState::Loading(
+                                self.state = AppState::Model(super::ModelState::Load(
                                     LoadModelState::Error(err.to_string()),
                                 ));
                             }
                         }
                     }
                     Err(err) => {
-                        self.state = AppState::Model(super::ModelState::Loading(
+                        self.state = AppState::Model(super::ModelState::Load(
                             LoadModelState::Error(err.to_string()),
                         ));
                     }

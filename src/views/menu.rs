@@ -1,7 +1,7 @@
 use crate::developer::DeveloperState;
 use crate::model::{LoadModelState, UnloadModelState};
 use crate::topology::TopologyState;
-use crate::views::topology::TopologyViewState;
+use crate::views::topology::TopologyRingState;
 use crate::{App, AppState};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{
@@ -217,13 +217,13 @@ impl App {
                 }
             }
             MenuItem::ViewTopology => {
-                self.state = AppState::Topology(TopologyState::Ring(TopologyViewState::Loading));
+                self.state = AppState::Topology(TopologyState::Ring(TopologyRingState::Loading));
                 self.selected_device = 0;
                 // Trigger async topology fetch
                 // Note: We'll need to handle this in the main loop
             }
             MenuItem::LoadModel => {
-                self.state = AppState::Model(super::model::ModelState::Loading(
+                self.state = AppState::Model(super::model::ModelState::Load(
                     LoadModelState::SelectingModel,
                 ));
                 self.selected_model = 0;
@@ -231,7 +231,7 @@ impl App {
             }
             MenuItem::UnloadModel => {
                 if self.is_model_loaded {
-                    self.state = AppState::Model(super::model::ModelState::Unloading(
+                    self.state = AppState::Model(super::model::ModelState::Unload(
                         UnloadModelState::Unloading,
                     ));
                     self.status_message.clear();

@@ -10,7 +10,7 @@ use crate::common::TopologyInfo;
 #[derive(Debug, Clone, PartialEq)]
 pub enum TopologyState {
     Shard(TopologyInfo, String),
-    Ring(TopologyViewState),
+    Ring(TopologyRingState),
 }
 
 impl crate::App {
@@ -35,7 +35,11 @@ impl crate::App {
     }
 
     /// Handle input for topology state.
-    pub(crate) fn handle_topology_input(&mut self, key: crossterm::event::KeyEvent, state: &TopologyState) {
+    pub(crate) fn handle_topology_input(
+        &mut self,
+        key: crossterm::event::KeyEvent,
+        state: &TopologyState,
+    ) {
         match state {
             TopologyState::Ring(_ring_state) => self.handle_topology_ring_input(key),
             TopologyState::Shard(_, _) => self.handle_shard_interaction_input(key),

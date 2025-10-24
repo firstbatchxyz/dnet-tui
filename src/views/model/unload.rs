@@ -119,13 +119,13 @@ impl crate::App {
         if matches!(state, UnloadModelState::Unloading) {
             match UnloadModelState::unload_model(&self.config.api_url()).await {
                 Ok(_) => {
-                    self.state = crate::AppState::Model(super::ModelState::Unloading(
+                    self.state = crate::AppState::Model(super::ModelState::Unload(
                         UnloadModelState::Success,
                     ));
                     self.is_model_loaded = false; // Clear model loaded flag
                 }
                 Err(err) => {
-                    self.state = crate::AppState::Model(super::ModelState::Unloading(
+                    self.state = crate::AppState::Model(super::ModelState::Unload(
                         UnloadModelState::Error(err.to_string()),
                     ));
                 }
