@@ -1,7 +1,7 @@
 use crate::chat::ChatState;
 use crate::config::Config;
 use crate::developer::DeveloperState;
-use crate::model::{LoadModelState, UnloadModelState};
+use crate::model::ModelState;
 use crate::settings::SettingsField;
 use crate::topology::TopologyState;
 use crossterm::event::EventStream;
@@ -12,19 +12,10 @@ use tokio::sync::mpsc;
 pub enum AppState {
     Menu,
     Settings,
-    TopologyView(TopologyState),
-    ShardView(String /* shard name */),
-    LoadModel(LoadModelState),
-    UnloadModel(UnloadModelState),
+    Topology(TopologyState),
+    Model(ModelState),
     Developer(DeveloperState),
     Chat(ChatState),
-}
-
-impl AppState {
-    /// Set the state to `Menu`, useful for "go-back" actions.
-    pub fn reset_to_menu(&mut self) {
-        *self = Self::Menu;
-    }
 }
 
 #[derive(Debug)]

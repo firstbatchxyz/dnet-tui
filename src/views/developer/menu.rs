@@ -56,7 +56,7 @@ impl crate::App {
     pub(super) fn handle_developer_menu_input(&mut self, key: KeyEvent) {
         match (key.modifiers, key.code) {
             (_, KeyCode::Esc) => {
-                self.state.reset_to_menu();
+                self.state = crate::AppState::Menu;
                 self.developer_menu_index = 0;
             }
             (KeyModifiers::CONTROL, KeyCode::Char('c') | KeyCode::Char('C')) => self.quit(),

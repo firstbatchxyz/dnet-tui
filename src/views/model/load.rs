@@ -1,5 +1,5 @@
+use crate::common::TopologyInfo;
 use crate::constants::AVAILABLE_MODELS;
-use crate::topology::TopologyResponse;
 use crate::{App, AppState};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{
@@ -56,10 +56,7 @@ struct LoadModelRequest {
 
 impl LoadModelState {
     /// Prepare topology by calling the API
-    pub async fn prepare_topology(
-        api_url: &str,
-        model: &str,
-    ) -> color_eyre::Result<TopologyResponse> {
+    pub async fn prepare_topology(api_url: &str, model: &str) -> color_eyre::Result<TopologyInfo> {
         let url = format!("{}/v1/prepare_topology", api_url);
         let client = reqwest::Client::new();
         let request = LoadModelRequest {
@@ -67,7 +64,7 @@ impl LoadModelState {
         };
 
         let response = client.post(&url).json(&request).send().await?;
-        let topology: TopologyResponse = response.json().await?;
+        let topology: TopologyInfo = response.json().await?;
         Ok(topology)
     }
 
@@ -103,7 +100,7 @@ impl LoadModelState {
 }
 
 impl App {
-    pub fn draw_load_model(&mut self, frame: &mut Frame, state: &LoadModelState) {
+    pub(super) fn draw_load_model(&mut self, frame: &mut Frame, state: &LoadModelState) {
         let area = frame.area();
 
         let vertical = Layout::vertical([
@@ -251,11 +248,11 @@ impl App {
         frame.render_widget(paragraph, area);
     }
 
-    pub fn handle_load_model_input(&mut self, key: KeyEvent, state: &LoadModelState) {
+    pub(super) fn handle_load_model_input(&mut self, key: KeyEvent, state: &LoadModelState) {
         match state {
             LoadModelState::SelectingModel => match (key.modifiers, key.code) {
                 (_, KeyCode::Esc) => {
-                    self.state.reset_to_menu();
+                    self.state = AppState::Menu;
                     self.selected_model = 0;
                 }
                 (KeyModifiers::CONTROL, KeyCode::Char('c') | KeyCode::Char('C')) => self.quit(),
@@ -267,7 +264,7 @@ impl App {
             LoadModelState::Error(_) | LoadModelState::Success(_) => {
                 match (key.modifiers, key.code) {
                     (_, KeyCode::Esc) => {
-                        self.state.reset_to_menu();
+                        self.state = AppState::Menu;
                         self.selected_model = 0;
                     }
                     (KeyModifiers::CONTROL, KeyCode::Char('c') | KeyCode::Char('C')) => self.quit(),
@@ -303,6 +300,50 @@ impl App {
 
     fn start_model_load(&mut self) {
         let model = AVAILABLE_MODELS[self.selected_model].to_string();
-        self.state = AppState::LoadModel(LoadModelState::PreparingTopology(model));
+        self.state = AppState::Model(super::ModelState::Loading(
+            LoadModelState::PreparingTopology(model),
+        ));
+    }
+
+    /// Handle async operations for load model state (called during tick).
+    pub(super) async fn tick_load_model(&mut self, state: &LoadModelState) {
+        match state {
+            LoadModelState::PreparingTopology(model) => {
+                match LoadModelState::prepare_topology(&self.config.api_url(), model).await {
+                    Ok(_topology) => {
+                        // Move to loading model state and trigger load
+                        let model_name = model.clone();
+                        self.state = AppState::Model(super::ModelState::Loading(
+                            LoadModelState::LoadingModel(model_name.clone()),
+                        ));
+
+                        // Load the model - just pass the model name
+                        match LoadModelState::load_model(&self.config.api_url(), Some(&model_name))
+                            .await
+                        {
+                            Ok(response) => {
+                                self.state = AppState::Model(super::ModelState::Loading(
+                                    LoadModelState::Success(response),
+                                ));
+                                self.model_loaded = true; // Set model loaded flag
+                            }
+                            Err(err) => {
+                                self.state = AppState::Model(super::ModelState::Loading(
+                                    LoadModelState::Error(err.to_string()),
+                                ));
+                            }
+                        }
+                    }
+                    Err(err) => {
+                        self.state = AppState::Model(super::ModelState::Loading(
+                            LoadModelState::Error(err.to_string()),
+                        ));
+                    }
+                }
+            }
+            _ => {
+                // No async operations needed for other states
+            }
+        }
     }
 }

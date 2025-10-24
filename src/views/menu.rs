@@ -1,6 +1,7 @@
 use crate::developer::DeveloperState;
 use crate::model::{LoadModelState, UnloadModelState};
 use crate::topology::TopologyState;
+use crate::views::topology::TopologyViewState;
 use crate::{App, AppState};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{
@@ -67,7 +68,13 @@ impl MenuItem {
             }
             MenuItem::ViewTopology => "View dnet topology",
             MenuItem::LoadModel => "Prepare & load a model",
-            MenuItem::UnloadModel => "Unload current model",
+            MenuItem::UnloadModel => {
+                if model_loaded {
+                    "Unload model"
+                } else {
+                    "Unload model (no model loaded)"
+                }
+            }
             MenuItem::Settings => "Edit configuration",
             MenuItem::Developer => "Advanced developer tools",
             MenuItem::Exit => "Quit application",
@@ -205,23 +212,32 @@ impl App {
             MenuItem::Chat => {
                 if self.model_loaded {
                     self.state = AppState::Chat(crate::chat::ChatState::new());
+                } else {
+                    // if model not loaded, do nothing (item is disabled)
                 }
-                // If model not loaded, do nothing (item is disabled)
             }
             MenuItem::ViewTopology => {
-                self.state = AppState::TopologyView(TopologyState::Loading);
+                self.state = AppState::Topology(TopologyState::Ring(TopologyViewState::Loading));
                 self.selected_device = 0;
                 // Trigger async topology fetch
                 // Note: We'll need to handle this in the main loop
             }
             MenuItem::LoadModel => {
-                self.state = AppState::LoadModel(LoadModelState::SelectingModel);
+                self.state = AppState::Model(super::model::ModelState::Loading(
+                    LoadModelState::SelectingModel,
+                ));
                 self.selected_model = 0;
                 self.status_message.clear();
             }
             MenuItem::UnloadModel => {
-                self.state = AppState::UnloadModel(UnloadModelState::Unloading);
-                self.status_message.clear();
+                if self.model_loaded {
+                    self.state = AppState::Model(super::model::ModelState::Unloading(
+                        UnloadModelState::Unloading,
+                    ));
+                    self.status_message.clear();
+                } else {
+                    // if model not loaded, do nothing (item is disabled)
+                }
             }
             MenuItem::Settings => {
                 self.state = AppState::Settings;

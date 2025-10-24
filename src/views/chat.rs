@@ -868,3 +868,89 @@ pub async fn is_model_loaded(api_url: &str) -> bool {
     }
     false
 }
+
+impl crate::App {
+    /// Handle async operations for chat state (called during tick).
+    pub(crate) async fn tick_chat(&mut self, state: &ChatState) {
+        // Handle pending chat message
+        if let Some(_message) = self.pending_chat_message.take() {
+            if let ChatState::Active {
+                messages,
+                max_tokens,
+                ..
+            } = state
+            {
+                match ChatState::send_message(&self.config.api_url(), messages, *max_tokens).await
+                {
+                    Ok(rx) => {
+                        self.chat_stream_rx = Some(rx);
+                    }
+                    Err(err) => {
+                        self.state = AppState::Chat(ChatState::Error(err));
+                    }
+                }
+            }
+        }
+
+        // Process chat stream - but only if we're still in chat state
+        if let Some(mut rx) = self.chat_stream_rx.take() {
+            // Check if we're still in chat state
+            if !matches!(self.state, AppState::Chat(_)) {
+                // We've exited chat, don't process the stream
+                self.chat_stream_rx = None;
+            } else {
+                let mut should_clear_rx = false;
+                let mut new_error_state = None;
+
+                // Try to receive messages without blocking
+                while let Ok(chunk) = rx.try_recv() {
+                    if let AppState::Chat(ChatState::Active {
+                        messages,
+                        input_buffer: _,
+                        cursor_position: _,
+                        is_generating,
+                        current_response,
+                        scroll_offset,
+                        max_tokens: _,
+                    }) = &mut self.state
+                    {
+                        if chunk == "DONE" {
+                            // Finalize the response
+                            if !current_response.is_empty() {
+                                messages.push_back(ChatMessage {
+                                    role: "assistant".to_string(),
+                                    content: current_response.clone(),
+                                    timestamp: chrono::Local::now().format("%H:%M").to_string(),
+                                });
+                                current_response.clear();
+                            }
+                            *is_generating = false;
+                            // Reset scroll to allow user to scroll freely after generation
+                            *scroll_offset = 0;
+                            should_clear_rx = true;
+                            break;
+                        } else if chunk.starts_with("ERROR:") {
+                            new_error_state = Some(chunk);
+                            should_clear_rx = true;
+                            break;
+                        } else {
+                            // Append chunk to current response
+                            current_response.push_str(&chunk);
+                            // Auto-scroll during generation to follow the new content
+                            // This ensures the user sees the latest tokens being generated
+                            *scroll_offset = usize::MAX; // Will be clamped in draw_messages
+                        }
+                    }
+                }
+
+                // Handle state changes after processing
+                if let Some(error) = new_error_state {
+                    self.state = AppState::Chat(ChatState::Error(error));
+                } else if !should_clear_rx {
+                    // Put the receiver back if we're not done
+                    self.chat_stream_rx = Some(rx);
+                }
+            }
+        }
+    }
+}

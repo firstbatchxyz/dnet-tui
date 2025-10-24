@@ -28,7 +28,11 @@ dnet-tui
 
 ## Contributions
 
-The code is structured so that all "windows" are thought of as their own modules, and they implement the required methods via `impl App` and `impl AppState` within their own file, with respect to visibility.
+The code is structured so that all "windows" are thought of as their own modules, and they implement the required methods via `impl App` and `impl AppState` within their own file, with respect to visibility. Within each `impl App` we expect the following methods:
+
+- `draw_*` to handle drawing on screen (called via `terminal.draw`)
+- `tick_*` to handle ticks (effect within the running loop)
+- `handle_*` to handle inputs from the user
 
 ## License
 

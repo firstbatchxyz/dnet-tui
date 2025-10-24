@@ -36,7 +36,7 @@ impl UnloadModelState {
 }
 
 impl crate::App {
-    pub fn draw_unload_model(&mut self, frame: &mut Frame, state: &UnloadModelState) {
+    pub(super) fn draw_unload_model(&mut self, frame: &mut Frame, state: &UnloadModelState) {
         let area = frame.area();
 
         let vertical = Layout::vertical([
@@ -83,24 +83,24 @@ impl crate::App {
         // Footer
         let footer_text = match state {
             UnloadModelState::Error(_) | UnloadModelState::Success => "Press Esc to go back",
-            _ => "Unloading...",
+            UnloadModelState::Unloading => "Please wait...",
         };
         frame.render_widget(Paragraph::new(footer_text).centered(), footer_area);
     }
 
-    pub fn handle_unload_model_input(&mut self, key: KeyEvent, state: &UnloadModelState) {
+    pub(super) fn handle_unload_model_input(&mut self, key: KeyEvent, state: &UnloadModelState) {
         match state {
             UnloadModelState::Error(_) | UnloadModelState::Success => {
                 match (key.modifiers, key.code) {
                     (_, KeyCode::Esc) => {
-                        self.state.reset_to_menu();
+                        self.state = crate::AppState::Menu;
                     }
                     (KeyModifiers::CONTROL, KeyCode::Char('c') | KeyCode::Char('C')) => self.quit(),
                     _ => {}
                 }
             }
-            _ => {
-                // During unloading, only allow quitting
+            UnloadModelState::Unloading => {
+                // only allow quitting
                 if matches!(
                     (key.modifiers, key.code),
                     (
@@ -109,6 +109,25 @@ impl crate::App {
                     )
                 ) {
                     self.quit();
+                }
+            }
+        }
+    }
+
+    /// Handle async operations for unload model state (called during tick).
+    pub(super) async fn tick_unload_model(&mut self, state: &UnloadModelState) {
+        if matches!(state, UnloadModelState::Unloading) {
+            match UnloadModelState::unload_model(&self.config.api_url()).await {
+                Ok(_) => {
+                    self.state = crate::AppState::Model(super::ModelState::Unloading(
+                        UnloadModelState::Success,
+                    ));
+                    self.model_loaded = false; // Clear model loaded flag
+                }
+                Err(err) => {
+                    self.state = crate::AppState::Model(super::ModelState::Unloading(
+                        UnloadModelState::Error(err.to_string()),
+                    ));
                 }
             }
         }

@@ -30,4 +30,16 @@ impl crate::App {
             }
         }
     }
+
+    /// Handle async operations for developer state (called during tick).
+    pub(crate) async fn tick_developer(&mut self, state: &DeveloperState) {
+        match state {
+            DeveloperState::Menu => {
+                // No async operations for menu
+            }
+            DeveloperState::ManualAssignment(ma_state) => {
+                self.tick_manual_assignment(ma_state).await
+            }
+        }
+    }
 }

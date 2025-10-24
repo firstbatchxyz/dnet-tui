@@ -1,6 +1,7 @@
 use super::DeveloperState;
-use crate::AppState;
+use crate::common::DeviceProperties;
 use crate::constants::AVAILABLE_MODELS;
+use crate::{AppState, common::ShardHealthResponse};
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::{
     Frame,
@@ -15,7 +16,7 @@ use std::collections::{HashMap, HashSet};
 #[derive(Debug, Clone, PartialEq)]
 pub enum ManualAssignmentState {
     SelectingModel,
-    FetchingShards(String), // model name
+    FetchingShards(String /* model name */),
     AssigningLayers {
         model: String,
         num_layers: u32,
@@ -37,8 +38,7 @@ pub enum ManualAssignmentState {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ShardInfo {
-    pub name: String,     // Full service name for API
-    pub instance: String, // Short instance name for display
+    pub instance: String,
     pub local_ip: String,
     pub server_port: u16,
     pub shard_port: u16,
@@ -46,34 +46,13 @@ pub struct ShardInfo {
     pub assigned_layers: Vec<u32>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct HealthResponse {
-    pub status: String,
-    pub node_id: i32,
-    pub running: bool,
-    pub model_loaded: bool,
-    pub model_path: Option<String>,
-    pub assigned_layers: Vec<u32>,
-    pub queue_size: i32,
-    pub grpc_port: u16,
-    pub http_port: u16,
-    pub instance: Option<String>,
-}
-
+// FIXME: kinda same as `TopologyInfo`
 #[derive(Debug, Serialize)]
 struct ManualTopologyRequest {
     model: String,
-    devices: Vec<DeviceInfo>,
+    devices: Vec<DeviceProperties>,
     assignments: Vec<AssignmentInfo>,
     num_layers: u32,
-}
-
-#[derive(Debug, Serialize)]
-struct DeviceInfo {
-    name: String,
-    local_ip: String,
-    server_port: u16,
-    shard_port: u16,
 }
 
 #[derive(Debug, Serialize)]
@@ -93,7 +72,7 @@ impl crate::App {
         let vertical = Layout::vertical([
             Constraint::Length(3), // Title
             Constraint::Min(0),    // Content
-            Constraint::Length(4), // Footer
+            Constraint::Length(3), // Footer
         ]);
         let [title_area, content_area, footer_area] = vertical.areas(area);
 
@@ -192,7 +171,9 @@ impl crate::App {
             ManualAssignmentState::Success | ManualAssignmentState::Error(_) => {
                 "Press Esc to go back"
             }
-            _ => "Loading...",
+            ManualAssignmentState::LoadingModel(_) => "Loading model...",
+            ManualAssignmentState::FetchingShards(_) => "Fetching shards...",
+            ManualAssignmentState::Submitting { .. } => "Submitting topology...",
         };
 
         frame.render_widget(
@@ -335,10 +316,7 @@ impl crate::App {
         };
 
         let status_text = if missing_layers.is_empty() {
-            format!(
-                "✓ All {} layers assigned! Press 'C' to complete.",
-                num_layers
-            )
+            format!("All {} layers assigned! Press 'C' to complete.", num_layers)
         } else {
             format!(
                 "Assigned: {}/{} | Missing: {}",
@@ -629,48 +607,41 @@ impl ManualAssignmentState {
         // Get devices from the /v1/devices endpoint
         let devices_url = format!("{}/v1/devices", api_url);
         let response = reqwest::get(&devices_url).await?;
-        let devices_response: serde_json::Value = response.json().await?;
+        let devices_response: Vec<DeviceProperties> = response.json().await?;
 
         let mut shards = Vec::new();
+        for device in devices_response {
+            // Skip the API manager node
+            if device.is_manager {
+                continue;
+            }
 
-        if let Some(devices) = devices_response["devices"].as_object() {
-            for (key, device) in devices {
-                // Skip the API manager node
-                if device["is_manager"].as_bool().unwrap_or(false) {
-                    continue;
-                }
+            let instance = device.instance.clone();
+            let local_ip = device.local_ip.clone();
+            let server_port = device.server_port;
+            let shard_port = device.shard_port;
 
-                let instance = device["instance"].as_str().unwrap_or("").to_string();
-                let local_ip = device["local_ip"]
-                    .as_str()
-                    .unwrap_or("127.0.0.1")
-                    .to_string();
-                let server_port = device["server_port"].as_u64().unwrap_or(0) as u16;
-                let shard_port = device["shard_port"].as_u64().unwrap_or(0) as u16;
-
-                // Get health info if possible
-                let health_url = format!("http://{}:{}/health", local_ip, server_port);
-                let (model_loaded, assigned_layers) =
-                    if let Ok(health_response) = reqwest::get(&health_url).await {
-                        if let Ok(health) = health_response.json::<HealthResponse>().await {
-                            (health.model_loaded, health.assigned_layers)
-                        } else {
-                            (false, Vec::new())
-                        }
+            // Get shard health info
+            let health_url = format!("http://{}:{}/health", device.local_ip, device.server_port);
+            let (model_loaded, assigned_layers) =
+                if let Ok(health_response) = reqwest::get(&health_url).await {
+                    if let Ok(health) = health_response.json::<ShardHealthResponse>().await {
+                        (health.model_loaded, health.assigned_layers)
                     } else {
                         (false, Vec::new())
-                    };
+                    }
+                } else {
+                    (false, Vec::new())
+                };
 
-                shards.push(ShardInfo {
-                    name: key.clone(), // Full service name for API
-                    instance,          // Short instance name for display
-                    local_ip,
-                    server_port,
-                    shard_port,
-                    model_loaded,
-                    assigned_layers,
-                });
-            }
+            shards.push(ShardInfo {
+                instance,
+                local_ip,
+                server_port,
+                shard_port,
+                model_loaded,
+                assigned_layers,
+            });
         }
 
         Ok((shards, num_layers))
@@ -688,14 +659,17 @@ impl ManualAssignmentState {
         let next_services = determine_next_services(assignments);
 
         // Build devices array
-        let devices: Vec<DeviceInfo> = shards
+        let devices: Vec<DeviceProperties> = shards
             .iter()
             .filter(|s| assignments.contains_key(&s.instance))
-            .map(|shard| DeviceInfo {
-                name: shard.name.clone(),
+            .map(|shard| DeviceProperties {
+                instance: shard.instance.clone(),
                 local_ip: shard.local_ip.clone(),
                 server_port: shard.server_port,
                 shard_port: shard.shard_port,
+                is_busy: false,
+                is_manager: false,
+                thunderbolt: None,
             })
             .collect();
 
@@ -710,15 +684,15 @@ impl ManualAssignmentState {
                             shards
                                 .iter()
                                 .find(|s| s.instance == *next_instance)
-                                .map(|s| s.name.clone())
+                                .map(|s| s.instance.clone())
                         })
-                        .unwrap_or_else(|| shard.name.clone());
+                        .unwrap_or_else(|| shard.instance.clone());
 
                     AssignmentInfo {
-                        service: shard.name.clone(),
+                        service: shard.instance.clone(),
                         layers: vec![layers.clone()],
                         window_size: layers.len() as u32,
-                        next_service,
+                        next_service: next_service,
                     }
                 })
             })
@@ -761,5 +735,89 @@ fn get_model_layers(model: &str) -> u32 {
         "openai/gpt-oss-120b" => 120,
         "openai/gpt-oss-20b" => 20,
         _ => 36, // Default
+    }
+}
+
+impl crate::App {
+    /// Handle async operations for manual assignment state (called during tick).
+    pub(super) async fn tick_manual_assignment(&mut self, state: &ManualAssignmentState) {
+        match state {
+            ManualAssignmentState::FetchingShards(model) => {
+                let model = model.clone();
+                match ManualAssignmentState::fetch_shards_with_model(
+                    &self.config.api_url(),
+                    &model,
+                )
+                .await
+                {
+                    Ok((shards, num_layers)) => {
+                        self.state = AppState::Developer(DeveloperState::ManualAssignment(
+                            ManualAssignmentState::AssigningLayers {
+                                model,
+                                num_layers,
+                                shards,
+                                assignments: HashMap::new(),
+                                selected_shard: 0,
+                                input_mode: false,
+                                input_buffer: String::new(),
+                            },
+                        ));
+                    }
+                    Err(err) => {
+                        self.state = AppState::Developer(DeveloperState::ManualAssignment(
+                            ManualAssignmentState::Error(err.to_string()),
+                        ));
+                    }
+                }
+            }
+            ManualAssignmentState::Submitting {
+                model,
+                shards,
+                assignments,
+            } => {
+                let model_name = model.clone();
+                match ManualAssignmentState::submit_manual_topology(
+                    &self.config.api_url(),
+                    &model,
+                    &shards,
+                    &assignments,
+                )
+                .await
+                {
+                    Ok(_) => {
+                        // Topology prepared, now load the model
+                        self.state = AppState::Developer(DeveloperState::ManualAssignment(
+                            ManualAssignmentState::LoadingModel(model_name),
+                        ));
+                    }
+                    Err(err) => {
+                        self.state = AppState::Developer(DeveloperState::ManualAssignment(
+                            ManualAssignmentState::Error(err.to_string()),
+                        ));
+                    }
+                }
+            }
+            ManualAssignmentState::LoadingModel(model) => {
+                // Load the model using the existing LoadModelState functionality
+                match crate::model::LoadModelState::load_model(&self.config.api_url(), Some(&model))
+                    .await
+                {
+                    Ok(_response) => {
+                        self.state = AppState::Developer(DeveloperState::ManualAssignment(
+                            ManualAssignmentState::Success,
+                        ));
+                        self.model_loaded = true; // Set model loaded flag
+                    }
+                    Err(err) => {
+                        self.state = AppState::Developer(DeveloperState::ManualAssignment(
+                            ManualAssignmentState::Error(format!("Failed to load model: {}", err)),
+                        ));
+                    }
+                }
+            }
+            _ => {
+                // No async operations needed for other states
+            }
+        }
     }
 }

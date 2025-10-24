@@ -1,4 +1,4 @@
-use crate::{app::AppState, views::topology::TopologyResponse};
+use crate::{app::AppState, common::TopologyInfo, views::topology::TopologyState};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{
     Frame,
@@ -8,34 +8,8 @@ use ratatui::{
     widgets::{Block, Paragraph},
 };
 
-use serde::{Deserialize, Serialize};
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ShardHealthResponse {
-    /// Health status (e.g., 'ok')
-    pub status: String,
-    /// Node identifier
-    pub node_id: u32,
-    /// Whether the node is running
-    pub running: bool,
-    /// Whether a model is currently loaded
-    pub model_loaded: bool,
-    /// Path to currently loaded model
-    pub model_path: Option<String>,
-    /// Layers assigned to this shard
-    pub assigned_layers: Vec<u32>,
-    /// Current activation queue size
-    pub queue_size: u32,
-    /// gRPC server port
-    pub grpc_port: u16,
-    /// HTTP server port
-    pub http_port: u16,
-    /// Short shard instance name (service label)
-    pub instance: Option<String>,
-}
-
 impl crate::App {
-    pub fn draw_shard_interaction(&mut self, frame: &mut Frame, device: &str) {
+    pub(super) fn draw_shard_interaction(&mut self, frame: &mut Frame, device: &str) {
         let area = frame.area();
 
         let vertical = Layout::vertical([
@@ -79,18 +53,27 @@ impl crate::App {
         );
     }
 
-    pub fn handle_shard_interaction_input(&mut self, key: KeyEvent) {
+    pub(super) fn handle_shard_interaction_input(&mut self, key: KeyEvent) {
         match (key.modifiers, key.code) {
             (_, KeyCode::Esc) => {
-                // Go back to topology view - restore the topology state
-                if let AppState::ShardView(_) = &self.state {
-                    // We need to restore the topology - for now go back to menu
-                    // TODO: Keep topology state when entering shard interaction
-                    self.state.reset_to_menu();
+                // go back to topology view - restore the topology state
+                if let AppState::Topology(TopologyState::Shard(topology, _)) = &self.state {
+                    self.state = AppState::Topology(super::TopologyState::Ring(
+                        super::TopologyViewState::Loaded(topology.clone()),
+                    ));
                 }
             }
             (KeyModifiers::CONTROL, KeyCode::Char('c') | KeyCode::Char('C')) => self.quit(),
             _ => {}
         }
+    }
+
+    /// Handle async operations for shard interaction state (called during tick).
+    pub(super) async fn tick_topology_shard(
+        &mut self,
+        _topology_info: &TopologyInfo,
+        _device: &str,
+    ) {
+        // No async operations for shard view yet (placeholder for future functionality)
     }
 }
