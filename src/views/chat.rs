@@ -21,6 +21,7 @@ pub enum ChatState {
         current_response: String,
         scroll_offset: usize,
         max_tokens: u32,
+        model: String,
     },
     Error(String),
 }
@@ -34,6 +35,7 @@ pub struct ChatMessage {
 
 #[derive(Debug, Serialize)]
 struct ChatRequest {
+    model: String,
     messages: Vec<ApiMessage>,
     max_tokens: Option<u32>,
     temperature: Option<f32>,
@@ -72,7 +74,7 @@ struct StreamDelta {
 }
 
 impl ChatState {
-    pub fn new() -> Self {
+    pub fn new(model: String) -> Self {
         let mut messages = VecDeque::new();
 
         // Add welcome message
@@ -85,6 +87,7 @@ impl ChatState {
         ChatState::Active {
             messages,
             input_buffer: String::new(),
+            model,
             cursor_position: 0,
             is_generating: false,
             current_response: String::new(),
@@ -129,7 +132,7 @@ impl crate::App {
                 is_generating,
                 current_response,
                 scroll_offset,
-                max_tokens: _,
+                ..
             } => {
                 // Draw messages
                 self.draw_chat_messages(
@@ -369,6 +372,7 @@ impl crate::App {
             current_response,
             scroll_offset,
             max_tokens,
+            model,
         } = state
         {
             let mut messages = messages.clone();
@@ -410,6 +414,7 @@ impl crate::App {
                             current_response,
                             scroll_offset,
                             max_tokens,
+                            model: model.clone(),
                         });
                         self.chat_stream_rx = None; // Clear the stream
                         return; // Early return to ensure state change takes effect
@@ -469,6 +474,7 @@ impl crate::App {
                                 current_response: String::new(),
                                 scroll_offset,
                                 max_tokens,
+                                model: model.clone(),
                             });
 
                             // Store the message for API call
@@ -540,6 +546,7 @@ impl crate::App {
                         current_response,
                         scroll_offset,
                         max_tokens,
+                        model: model.clone(),
                     });
                 }
             }
@@ -741,6 +748,7 @@ impl ChatState {
     pub async fn send_message(
         api_url: &str,
         messages: &VecDeque<ChatMessage>,
+        model: &str,
         max_tokens: u32,
     ) -> Result<mpsc::UnboundedReceiver<String>, String> {
         let (tx, rx) = mpsc::unbounded_channel();
@@ -763,6 +771,7 @@ impl ChatState {
         // so we don't add it again here
 
         let request = ChatRequest {
+            model: model.to_string(),
             messages: api_messages,
             max_tokens: Some(max_tokens),
             temperature: Some(0.7),
@@ -854,21 +863,6 @@ async fn stream_chat_response(
     Ok(())
 }
 
-// Check if model is loaded
-pub async fn is_model_loaded(api_url: &str) -> bool {
-    // Try to get topology to see if model is loaded
-    let url = format!("{}/v1/topology", api_url);
-    if let Ok(response) = reqwest::get(&url).await {
-        if let Ok(json) = response.json::<serde_json::Value>().await {
-            // Check if model field exists and is not empty
-            if let Some(model) = json.get("model") {
-                return model.as_str().map_or(false, |s| !s.is_empty());
-            }
-        }
-    }
-    false
-}
-
 impl crate::App {
     /// Handle async operations for chat state (called during tick).
     pub(crate) async fn tick_chat(&mut self, state: &ChatState) {
@@ -877,10 +871,12 @@ impl crate::App {
             if let ChatState::Active {
                 messages,
                 max_tokens,
+                model,
                 ..
             } = state
             {
-                match ChatState::send_message(&self.config.api_url(), messages, *max_tokens).await
+                match ChatState::send_message(&self.config.api_url(), messages, model, *max_tokens)
+                    .await
                 {
                     Ok(rx) => {
                         self.chat_stream_rx = Some(rx);
@@ -911,7 +907,7 @@ impl crate::App {
                         is_generating,
                         current_response,
                         scroll_offset,
-                        max_tokens: _,
+                        ..
                     }) = &mut self.state
                     {
                         if chunk == "DONE" {

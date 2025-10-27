@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use serde::{Deserialize, Serialize};
 
 /// A device info as retrieved from the API, which reads from the discovery module.
@@ -13,6 +15,8 @@ pub struct DeviceProperties {
     #[serde(default)]
     pub is_busy: bool,
     /// The instance name, e.g., "shard-01".
+    /// FIXME: name mismatch issues due to prepare_topology vs devices arrays
+    #[serde(rename(serialize = "name", deserialize = "instance"))]
     pub instance: String,
     /// The port that HTTP server listens on.
     pub server_port: u16,
@@ -21,8 +25,13 @@ pub struct DeviceProperties {
     /// The local IP address of the device.
     pub local_ip: String,
     /// Additional Thunderbolt-specific info, if applicable.
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub thunderbolt: Option<ThunderboltInfo>,
+}
+
+/// The response from the `/v1/devices` endpoint.
+#[derive(Debug, Clone, Deserialize)]
+pub struct DevicesResponse {
+    pub devices: HashMap<String, DeviceProperties>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

@@ -34,11 +34,6 @@ impl App {
     pub async fn run(mut self, mut terminal: DefaultTerminal) -> Result<()> {
         self.is_running = true;
 
-        // check if a model is already loaded on startup
-        // TODO: this should check for topology instead, which may enable / disable view topology button too
-        // TODO: maybe this should be done ONCE as the user opens the menu for the first time?
-        self.is_model_loaded = chat::is_model_loaded(&self.config.api_url()).await;
-
         // create a ticker for animation updates
         let mut interval = tokio::time::interval(FPS_RATE);
 
@@ -48,6 +43,12 @@ impl App {
 
             // process ticks
             match self.state.clone() {
+                AppState::Menu => {
+                    self.tick_menu().await;
+                }
+                AppState::Devices(devices_state) => {
+                    self.tick_devices(&devices_state).await;
+                }
                 AppState::Topology(topology_state) => {
                     self.tick_topology(&topology_state).await;
                 }
@@ -61,7 +62,7 @@ impl App {
                     self.tick_chat(&chat_state).await;
                 }
                 _ => {
-                    // No async operations for Menu and Settings
+                    // No async operations for Settings
                 }
             }
 
@@ -84,6 +85,7 @@ impl App {
         match self.state.clone() {
             AppState::Menu => self.draw_menu(frame),
             AppState::Settings => self.draw_settings(frame),
+            AppState::Devices(state) => self.draw_devices(frame, &state),
             AppState::Topology(state) => self.draw_topology(frame, &state),
             AppState::Model(state) => self.draw_model(frame, &state),
             AppState::Developer(state) => self.draw_developer(frame, &state),
@@ -111,6 +113,7 @@ impl App {
         match &self.state.clone() {
             AppState::Menu => self.handle_menu_input(key),
             AppState::Settings => self.handle_settings_input(key),
+            AppState::Devices(state) => self.handle_devices_input(key, state),
             AppState::Topology(state) => self.handle_topology_input(key, state),
             AppState::Model(state) => self.handle_model_input(key, state),
             AppState::Developer(state) => self.handle_developer_input(key, state),

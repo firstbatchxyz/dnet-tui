@@ -6,7 +6,7 @@ pub(crate) mod developer;
 pub(crate) mod devices;
 /// Menu interface.
 pub(crate) mod menu;
-/// Loading models & prepaing.
+/// Loading and unloading models.
 pub(crate) mod model;
 /// View & edit settings.
 pub(crate) mod settings;

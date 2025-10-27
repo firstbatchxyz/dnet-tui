@@ -15,7 +15,7 @@ use ratatui::{
 #[derive(Debug, Clone, PartialEq)]
 pub enum TopologyRingState {
     Loading,
-    Loaded(TopologyInfo),
+    Loaded,
     Error(String),
 }
 
@@ -123,14 +123,23 @@ impl crate::App {
                     content_area,
                 );
             }
-            TopologyRingState::Loaded(topology) => {
-                self.draw_topology_ring(frame, content_area, topology);
+            TopologyRingState::Loaded => {
+                if let Some(topology) = self.topology_info.clone() {
+                    self.draw_topology_ring(frame, content_area, &topology);
+                } else {
+                    frame.render_widget(
+                        Paragraph::new("No topology data available")
+                            .block(Block::bordered())
+                            .centered(),
+                        content_area,
+                    );
+                }
             }
         }
 
         // Footer
         let footer_text = match state {
-            TopologyRingState::Loaded(_) => {
+            TopologyRingState::Loaded => {
                 "Use ↑↓ to select device  |  Enter to interact  |  Esc to go back"
             }
             _ => "Press Esc to go back",
@@ -349,42 +358,47 @@ impl crate::App {
     }
 
     fn topology_device_up(&mut self) {
-        if let AppState::Topology(super::TopologyState::Ring(TopologyRingState::Loaded(topology))) =
+        if let AppState::Topology(super::TopologyState::Ring(TopologyRingState::Loaded)) =
             &self.state
         {
-            let device_count = topology.devices.len();
-            if device_count > 0 {
-                // Cycle: if at 0, wrap to last device
-                if self.selected_device == 0 {
-                    self.selected_device = device_count - 1;
-                } else {
-                    self.selected_device -= 1;
+            if let Some(topology) = &self.topology_info {
+                let device_count = topology.devices.len();
+                if device_count > 0 {
+                    // Cycle: if at 0, wrap to last device
+                    if self.selected_device == 0 {
+                        self.selected_device = device_count - 1;
+                    } else {
+                        self.selected_device -= 1;
+                    }
                 }
             }
         }
     }
 
     fn topology_device_down(&mut self) {
-        if let AppState::Topology(super::TopologyState::Ring(TopologyRingState::Loaded(topology))) =
+        if let AppState::Topology(super::TopologyState::Ring(TopologyRingState::Loaded)) =
             &self.state
         {
-            let device_count = topology.devices.len();
-            if device_count > 0 {
-                // Cycle: if at last, wrap to 0
-                self.selected_device = (self.selected_device + 1) % device_count;
+            if let Some(topology) = &self.topology_info {
+                let device_count = topology.devices.len();
+                if device_count > 0 {
+                    // Cycle: if at last, wrap to 0
+                    self.selected_device = (self.selected_device + 1) % device_count;
+                }
             }
         }
     }
 
     fn open_shard_interaction(&mut self) {
-        if let AppState::Topology(super::TopologyState::Ring(TopologyRingState::Loaded(topology))) =
+        if let AppState::Topology(super::TopologyState::Ring(TopologyRingState::Loaded)) =
             &self.state
         {
-            if let Some(device) = topology.devices.get(self.selected_device) {
-                self.state = AppState::Topology(super::TopologyState::Shard(
-                    topology.clone(),
-                    device.instance.clone(),
-                ));
+            if let Some(topology) = &self.topology_info {
+                if let Some(device) = topology.devices.get(self.selected_device) {
+                    self.state = AppState::Topology(super::TopologyState::Shard(
+                        device.instance.clone(),
+                    ));
+                }
             }
         }
     }
@@ -400,8 +414,9 @@ impl crate::App {
     async fn load_topology(&mut self) {
         match TopologyInfo::fetch(&self.config.api_url()).await {
             Ok(topology) => {
+                self.topology_info = Some(topology);
                 self.state = AppState::Topology(super::TopologyState::Ring(
-                    TopologyRingState::Loaded(topology),
+                    TopologyRingState::Loaded,
                 ));
             }
             Err(err) => {

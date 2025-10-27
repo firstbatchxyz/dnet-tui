@@ -14,8 +14,8 @@ use ratatui::{
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum MenuItem {
-    // ViewDevices, // TODO: add
     Chat,
+    ViewDevices,
     ViewTopology,
     LoadModel,
     UnloadModel,
@@ -26,14 +26,18 @@ pub enum MenuItem {
 
 impl MenuItem {
     /// Formats a menu item for display.
-    pub fn fmt(&self, model_loaded: bool) -> String {
-        format!("{:<15}: {}", self.label(), self.description(model_loaded))
+    pub fn fmt(&self, topology_loaded: bool) -> String {
+        format!(
+            "{:<15}: {}",
+            self.label(),
+            self.description(topology_loaded)
+        )
     }
 
     pub fn all() -> Vec<MenuItem> {
         vec![
-            // MenuItem::ViewDevices,
             MenuItem::Chat,
+            MenuItem::ViewDevices,
             MenuItem::ViewTopology,
             MenuItem::LoadModel,
             MenuItem::UnloadModel,
@@ -45,8 +49,8 @@ impl MenuItem {
 
     pub fn label(&self) -> &str {
         match self {
-            // MenuItem::ViewDevices => "View Devices",
             MenuItem::Chat => "Chat",
+            MenuItem::ViewDevices => "View Devices",
             MenuItem::ViewTopology => "View Topology",
             MenuItem::LoadModel => "Load Model",
             MenuItem::UnloadModel => "Unload Model",
@@ -56,20 +60,26 @@ impl MenuItem {
         }
     }
 
-    pub fn description(&self, model_loaded: bool) -> &str {
+    pub fn description(&self, topology_loaded: bool) -> &str {
         match self {
-            // MenuItem::ViewDevices => "View discovered devices",
             MenuItem::Chat => {
-                if model_loaded {
+                if topology_loaded {
                     "Chat with loaded model"
                 } else {
                     "Chat (no model loaded)"
                 }
             }
-            MenuItem::ViewTopology => "View dnet topology",
+            MenuItem::ViewDevices => "View discovered devices",
+            MenuItem::ViewTopology => {
+                if topology_loaded {
+                    "View dnet topology"
+                } else {
+                    "View topology (no topology available)"
+                }
+            }
             MenuItem::LoadModel => "Prepare & load a model",
             MenuItem::UnloadModel => {
-                if model_loaded {
+                if topology_loaded {
                     "Unload model"
                 } else {
                     "Unload model (no model loaded)"
@@ -87,16 +97,37 @@ impl MenuItem {
     }
 
     /// The total width of the menu when fully rendered.
-    pub fn total_width(model_loaded: bool) -> u16 {
+    pub fn total_width(topology_loaded: bool) -> u16 {
         Self::all()
             .iter()
-            .map(|item| item.fmt(model_loaded).len() as u16)
+            .map(|item| item.fmt(topology_loaded).len() as u16)
             .max()
             .unwrap_or(0)
     }
 }
 
 impl App {
+    /// Handle async operations for menu state (called during tick).
+    pub(crate) async fn tick_menu(&mut self) {
+        // Check topology every few seconds to avoid excessive API calls
+        const TOPOLOGY_CHECK_INTERVAL: std::time::Duration = std::time::Duration::from_secs(2);
+
+        let now = std::time::Instant::now();
+        if now.duration_since(self.last_topology_check) >= TOPOLOGY_CHECK_INTERVAL {
+            self.last_topology_check = now;
+
+            match crate::common::TopologyInfo::fetch(&self.config.api_url()).await {
+                Ok(topology) => {
+                    self.topology_info = Some(topology);
+                }
+                Err(_) => {
+                    // If topology fetch fails, clear it (model not loaded or not configured)
+                    self.topology_info = None;
+                }
+            }
+        }
+    }
+
     pub fn draw_menu(&mut self, frame: &mut Frame) {
         let area = frame.area();
 
@@ -122,8 +153,10 @@ impl App {
             .enumerate()
             .map(|(i, item)| {
                 // decide style based on selection and availability
-                let is_disabled = (matches!(item, MenuItem::Chat | MenuItem::UnloadModel)
-                    && !self.is_model_loaded);
+                let is_disabled = matches!(
+                    item,
+                    MenuItem::Chat | MenuItem::UnloadModel | MenuItem::ViewTopology
+                ) && self.topology_info.is_none();
                 let is_selected = i == self.selected_menu;
 
                 let style = match (is_selected, is_disabled) {
@@ -143,7 +176,7 @@ impl App {
                     (false, false) => Style::default(),
                 };
 
-                ListItem::new(item.fmt(self.is_model_loaded)).style(style)
+                ListItem::new(item.fmt(self.topology_info.is_some())).style(style)
             })
             .collect();
 
@@ -158,7 +191,7 @@ impl App {
         .areas(menu_area);
 
         // Calculate horizontal centering for menu
-        let menu_width = MenuItem::total_width(self.is_model_loaded);
+        let menu_width = MenuItem::total_width(self.topology_info.is_some());
         let left_padding = (vertical_centered_area.width.saturating_sub(menu_width)) / 2;
         let [_, centered_menu_area, _] = Layout::horizontal([
             Constraint::Length(left_padding),
@@ -206,21 +239,24 @@ impl App {
 
     fn select_menu_item(&mut self) {
         match MenuItem::all()[self.selected_menu] {
-            // MenuItem::ViewDevices => {
-            //     // TODO: Implement devices view
-            // }
             MenuItem::Chat => {
-                if self.is_model_loaded {
-                    self.state = AppState::Chat(crate::chat::ChatState::new());
+                if let Some(topology) = &self.topology_info {
+                    let model = topology.model.clone();
+                    self.state = AppState::Chat(crate::chat::ChatState::new(model));
                 } else {
-                    // if model not loaded, do nothing (item is disabled)
+                    // if topology not loaded, do nothing (item is disabled)
                 }
             }
+            MenuItem::ViewDevices => {
+                self.state = AppState::Devices(crate::devices::DevicesState::Loading);
+            }
             MenuItem::ViewTopology => {
-                self.state = AppState::Topology(TopologyState::Ring(TopologyRingState::Loading));
-                self.selected_device = 0;
-                // Trigger async topology fetch
-                // Note: We'll need to handle this in the main loop
+                if self.topology_info.is_some() {
+                    self.state = AppState::Topology(TopologyState::Ring(TopologyRingState::Loaded));
+                    self.selected_device = 0;
+                } else {
+                    // if topology not loaded, do nothing (item is disabled)
+                }
             }
             MenuItem::LoadModel => {
                 self.state = AppState::Model(super::model::ModelState::Load(
@@ -230,13 +266,13 @@ impl App {
                 self.status_message.clear();
             }
             MenuItem::UnloadModel => {
-                if self.is_model_loaded {
+                if self.topology_info.is_some() {
                     self.state = AppState::Model(super::model::ModelState::Unload(
                         UnloadModelState::Unloading,
                     ));
                     self.status_message.clear();
                 } else {
-                    // if model not loaded, do nothing (item is disabled)
+                    // if topology not loaded, do nothing (item is disabled)
                 }
             }
             MenuItem::Settings => {

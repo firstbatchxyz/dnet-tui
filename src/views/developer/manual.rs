@@ -1,7 +1,8 @@
 use super::DeveloperState;
 use crate::AppState;
-use crate::common::{DeviceProperties, ShardHealthResponse};
+use crate::common::{DeviceProperties, DevicesResponse, ShardHealthResponse};
 use crate::constants::AVAILABLE_MODELS;
+use color_eyre::eyre::Context;
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::{
     Frame,
@@ -606,11 +607,13 @@ impl ManualAssignmentState {
 
         // Get devices from the /v1/devices endpoint
         let devices_url = format!("{}/v1/devices", api_url);
-        let response = reqwest::get(&devices_url).await?;
-        let devices_response: Vec<DeviceProperties> = response.json().await?;
+        let response = reqwest::get(&devices_url)
+            .await
+            .wrap_err("Could not fetch devices")?;
+        let devices_response: DevicesResponse = response.json().await?;
 
         let mut shards = Vec::new();
-        for device in devices_response {
+        for device in devices_response.devices.values() {
             // Skip the API manager node
             if device.is_manager {
                 continue;
@@ -721,20 +724,29 @@ impl ManualAssignmentState {
     }
 }
 
-// Helper to get number of layers for a model
-fn get_model_layers(model: &str) -> u32 {
-    // This should match the actual model layer counts
-    // You might want to get this from an API endpoint
+/// Helper to get number of layers for a model
+///
+/// This should match the actual model layer counts
+/// You might want to get this from an API endpoint
+#[rustfmt::skip]
+fn get_model_layers(model: &str) -> u32 {    
     match model {
-        "Qwen/Qwen3-4B-MLX-4bit" | "Qwen/Qwen3-4B-MLX-8bit" => 36,
-        "Qwen/Qwen3-30B-A3B-MLX-8bit"
+          "Qwen/Qwen3-4B-MLX-4bit" 
+        | "Qwen/Qwen3-4B-MLX-8bit" => 36,
+
+          "Qwen/Qwen3-30B-A3B-MLX-8bit"
         | "Qwen/Qwen3-30B-A3B-MLX-bf16"
         | "Qwen/Qwen3-30B-A3B-MLX-6bit" => 30,
-        "Qwen/Qwen3-32B-MLX-bf16" | "Qwen/Qwen3-32B-MLX-8bit" | "Qwen/Qwen3-32B-MLX-6bit" => 32,
+        
+          "Qwen/Qwen3-32B-MLX-bf16"
+        | "Qwen/Qwen3-32B-MLX-8bit"
+        | "Qwen/Qwen3-32B-MLX-6bit" => 32,
+
         "NousResearch/Hermes-4-70B" => 70,
+
         "openai/gpt-oss-120b" => 120,
         "openai/gpt-oss-20b" => 20,
-        _ => 36, // Default
+        _ => 36, // default fallback FIXME: smelly
     }
 }
 
@@ -762,7 +774,7 @@ impl crate::App {
                     }
                     Err(err) => {
                         self.state = AppState::Developer(DeveloperState::ManualAssignment(
-                            ManualAssignmentState::Error(err.to_string()),
+                            ManualAssignmentState::Error(format!("{:#?}", err.to_string())),
                         ));
                     }
                 }
@@ -789,7 +801,7 @@ impl crate::App {
                     }
                     Err(err) => {
                         self.state = AppState::Developer(DeveloperState::ManualAssignment(
-                            ManualAssignmentState::Error(err.to_string()),
+                            ManualAssignmentState::Error(format!("{:#?}", err.to_string())),
                         ));
                     }
                 }
@@ -803,7 +815,12 @@ impl crate::App {
                         self.state = AppState::Developer(DeveloperState::ManualAssignment(
                             ManualAssignmentState::Success,
                         ));
-                        self.is_model_loaded = true; // Set model loaded flag
+                        // Fetch topology after successful manual assignment
+                        if let Ok(topology) =
+                            crate::common::TopologyInfo::fetch(&self.config.api_url()).await
+                        {
+                            self.topology_info = Some(topology);
+                        }
                     }
                     Err(err) => {
                         self.state = AppState::Developer(DeveloperState::ManualAssignment(
@@ -816,5 +833,25 @@ impl crate::App {
                 // No async operations needed for other states
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_get_shards() {
+        let model = "Qwen/Qwen3-4B-MLX-4bit";
+        let num_layers = get_model_layers(model);
+        assert_eq!(num_layers, 36);
+
+        let model = "openai/gpt-oss-120b";
+        let num_layers = get_model_layers(model);
+        assert_eq!(num_layers, 120);
+
+        let model = "unknown-model";
+        let num_layers = get_model_layers(model);
+        assert_eq!(num_layers, 36); // Default
     }
 }

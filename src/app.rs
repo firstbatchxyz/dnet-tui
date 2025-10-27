@@ -1,6 +1,7 @@
 use crate::chat::ChatState;
 use crate::config::Config;
 use crate::developer::DeveloperState;
+use crate::devices::DevicesState;
 use crate::model::ModelState;
 use crate::settings::SettingsField;
 use crate::topology::TopologyState;
@@ -12,6 +13,7 @@ use tokio::sync::mpsc;
 pub enum AppState {
     Menu,
     Settings,
+    Devices(DevicesState),
     Topology(TopologyState),
     Model(ModelState),
     Developer(DeveloperState),
@@ -46,12 +48,20 @@ pub struct App {
     pub status_message: String,
     /// Animation start time for sliding text.
     pub animation_start: Instant,
+    /// Last time we checked topology in the menu
+    pub last_topology_check: Instant,
     /// Pending chat message to send
     pub pending_chat_message: Option<String>,
     /// Chat message receiver for streaming responses
     pub chat_stream_rx: Option<mpsc::UnboundedReceiver<String>>,
-    /// Whether a model is currently loaded
-    pub is_model_loaded: bool,
+    /// FIXME: this will be the currently loaded model
+    ///
+    /// While the topology info also contains the loaded model,
+    /// one can unload the model while preserving topology etc.
+    // pub loaded_model: Option<String>,
+
+    /// Current topology information (exists only when a model is loaded)
+    pub topology_info: Option<crate::common::TopologyInfo>,
 }
 
 impl App {
@@ -72,9 +82,10 @@ impl App {
             input_buffer: String::new(),
             status_message: String::new(),
             animation_start: Instant::now(),
+            last_topology_check: Instant::now(),
             pending_chat_message: None,
             chat_stream_rx: None,
-            is_model_loaded: false,
+            topology_info: None,
         })
     }
 

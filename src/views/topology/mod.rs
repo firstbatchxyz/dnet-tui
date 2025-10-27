@@ -5,11 +5,9 @@ mod shard;
 mod ring;
 pub use ring::*;
 
-use crate::common::TopologyInfo;
-
 #[derive(Debug, Clone, PartialEq)]
 pub enum TopologyState {
-    Shard(TopologyInfo, String),
+    Shard(String),
     Ring(TopologyRingState),
 }
 
@@ -18,8 +16,8 @@ impl crate::App {
     pub(crate) async fn tick_topology(&mut self, state: &TopologyState) {
         match state {
             TopologyState::Ring(ring_state) => self.tick_topology_ring(ring_state).await,
-            TopologyState::Shard(topology_info, device) => {
-                self.tick_topology_shard(topology_info, device).await
+            TopologyState::Shard(device) => {
+                self.tick_topology_shard(device).await
             }
         }
     }
@@ -28,7 +26,7 @@ impl crate::App {
     pub(crate) fn draw_topology(&mut self, frame: &mut ratatui::Frame, state: &TopologyState) {
         match state {
             TopologyState::Ring(ring_state) => self.draw_topology_ring_view(frame, ring_state),
-            TopologyState::Shard(_topology_info, device) => {
+            TopologyState::Shard(device) => {
                 self.draw_shard_interaction(frame, device)
             }
         }
@@ -42,7 +40,7 @@ impl crate::App {
     ) {
         match state {
             TopologyState::Ring(_ring_state) => self.handle_topology_ring_input(key),
-            TopologyState::Shard(_, _) => self.handle_shard_interaction_input(key),
+            TopologyState::Shard(_) => self.handle_shard_interaction_input(key),
         }
     }
 }

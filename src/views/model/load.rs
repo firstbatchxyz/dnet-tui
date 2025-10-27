@@ -325,7 +325,10 @@ impl App {
                                 self.state = AppState::Model(super::ModelState::Load(
                                     LoadModelState::Success(response),
                                 ));
-                                self.is_model_loaded = true; // Set model loaded flag
+                                // Fetch topology after successful model load
+                                if let Ok(topology) = crate::common::TopologyInfo::fetch(&self.config.api_url()).await {
+                                    self.topology_info = Some(topology);
+                                }
                             }
                             Err(err) => {
                                 self.state = AppState::Model(super::ModelState::Load(

@@ -1,4 +1,4 @@
-use crate::{app::AppState, common::TopologyInfo, views::topology::TopologyState};
+use crate::{app::AppState, views::topology::TopologyState};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{
     Frame,
@@ -57,9 +57,9 @@ impl crate::App {
         match (key.modifiers, key.code) {
             (_, KeyCode::Esc) => {
                 // go back to topology view - restore the topology state
-                if let AppState::Topology(TopologyState::Shard(topology, _)) = &self.state {
+                if let AppState::Topology(TopologyState::Shard(_)) = &self.state {
                     self.state = AppState::Topology(super::TopologyState::Ring(
-                        super::TopologyRingState::Loaded(topology.clone()),
+                        super::TopologyRingState::Loaded,
                     ));
                 }
             }
@@ -71,7 +71,6 @@ impl crate::App {
     /// Handle async operations for shard interaction state (called during tick).
     pub(super) async fn tick_topology_shard(
         &mut self,
-        _topology_info: &TopologyInfo,
         _device: &str,
     ) {
         // No async operations for shard view yet (placeholder for future functionality)
