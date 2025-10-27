@@ -46,7 +46,7 @@ impl App {
         let vertical = Layout::vertical([
             Constraint::Length(3), // Title
             Constraint::Min(0),    // Content
-            Constraint::Length(2), // Footer
+            Constraint::Length(3), // Footer
         ]);
         let [title_area, content_area, footer_area] = vertical.areas(area);
 

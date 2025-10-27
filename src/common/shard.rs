@@ -2,7 +2,7 @@
 //!
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ShardHealthResponse {
     /// Health status (e.g., 'ok')
     pub status: String,
@@ -23,5 +23,5 @@ pub struct ShardHealthResponse {
     /// HTTP server port
     pub http_port: u16,
     /// Short shard instance name (service label)
-    pub instance: Option<String>,
+    pub instance: String,
 }

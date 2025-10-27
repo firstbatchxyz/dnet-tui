@@ -397,6 +397,7 @@ impl crate::App {
                 if let Some(device) = topology.devices.get(self.selected_device) {
                     self.state = AppState::Topology(super::TopologyState::Shard(
                         device.instance.clone(),
+                        super::ShardViewState::Loading,
                     ));
                 }
             }

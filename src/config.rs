@@ -6,13 +6,26 @@ use std::path::PathBuf;
 pub struct Config {
     pub api_host: String,
     pub api_port: u16,
+    #[serde(default = "default_max_tokens")]
+    pub max_tokens: u32,
+    #[serde(default = "default_temperature")]
+    pub temperature: f32,
 }
+
+#[inline(always)]
+#[rustfmt::skip]
+fn default_max_tokens() -> u32  { 2000 }
+#[inline(always)]
+#[rustfmt::skip]
+fn default_temperature() -> f32 { 0.7 }
 
 impl Default for Config {
     fn default() -> Self {
         Self {
             api_host: "127.0.0.1".to_string(),
             api_port: 8080,
+            max_tokens: default_max_tokens(),
+            temperature: default_temperature(),
         }
     }
 }

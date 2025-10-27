@@ -74,7 +74,7 @@ struct StreamDelta {
 }
 
 impl ChatState {
-    pub fn new(model: String) -> Self {
+    pub fn new(model: String, max_tokens: u32) -> Self {
         let mut messages = VecDeque::new();
 
         // Add welcome message
@@ -92,7 +92,7 @@ impl ChatState {
             is_generating: false,
             current_response: String::new(),
             scroll_offset: 0,
-            max_tokens: 2000,
+            max_tokens,
         }
     }
 }
@@ -750,6 +750,7 @@ impl ChatState {
         messages: &VecDeque<ChatMessage>,
         model: &str,
         max_tokens: u32,
+        temperature: f32,
     ) -> Result<mpsc::UnboundedReceiver<String>, String> {
         let (tx, rx) = mpsc::unbounded_channel();
 
@@ -774,7 +775,7 @@ impl ChatState {
             model: model.to_string(),
             messages: api_messages,
             max_tokens: Some(max_tokens),
-            temperature: Some(0.7),
+            temperature: Some(temperature),
             stream: true,
         };
 
@@ -875,8 +876,14 @@ impl crate::App {
                 ..
             } = state
             {
-                match ChatState::send_message(&self.config.api_url(), messages, model, *max_tokens)
-                    .await
+                match ChatState::send_message(
+                    &self.config.api_url(),
+                    messages,
+                    model,
+                    *max_tokens,
+                    self.config.temperature,
+                )
+                .await
                 {
                     Ok(rx) => {
                         self.chat_stream_rx = Some(rx);

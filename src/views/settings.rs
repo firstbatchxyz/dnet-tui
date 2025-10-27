@@ -16,6 +16,10 @@ pub enum SettingsField {
     Host,
     /// API Port.
     Port,
+    /// Max tokens for chat responses.
+    MaxTokens,
+    /// Temperature for chat responses.
+    Temperature,
 }
 
 impl App {
@@ -35,51 +39,63 @@ impl App {
         frame.render_widget(Paragraph::new(title), title_area);
 
         // Settings fields
-        // TODO: a better way maybe?
-        let is_editing_host =
-            matches!(self.selected_field, SettingsField::Host) && !self.input_buffer.is_empty();
-        let is_editing_port =
-            matches!(self.selected_field, SettingsField::Port) && !self.input_buffer.is_empty();
+        let is_editing = !self.input_buffer.is_empty();
 
-        let host_style = if matches!(self.selected_field, SettingsField::Host) {
-            Style::default()
-                .fg(Color::Yellow)
-                .add_modifier(Modifier::BOLD)
-        } else {
-            Style::default()
-        };
-
-        let port_style = if matches!(self.selected_field, SettingsField::Port) {
-            Style::default()
-                .fg(Color::Yellow)
-                .add_modifier(Modifier::BOLD)
-        } else {
-            Style::default()
+        let field_style = |field: SettingsField| {
+            if matches!(self.selected_field, f if f == field) {
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default()
+            }
         };
 
         // Show input_buffer if editing, otherwise show temp_config value
-        let host_value = if is_editing_host {
-            format!("{}_", self.input_buffer) // Add cursor
+        let host_value = if is_editing && matches!(self.selected_field, SettingsField::Host) {
+            format!("{}_", self.input_buffer)
         } else {
             self.temp_config.api_host.clone()
         };
 
-        let port_value = if is_editing_port {
-            format!("{}_", self.input_buffer) // Add cursor
+        let port_value = if is_editing && matches!(self.selected_field, SettingsField::Port) {
+            format!("{}_", self.input_buffer)
         } else {
             self.temp_config.api_port.to_string()
+        };
+
+        let max_tokens_value = if is_editing && matches!(self.selected_field, SettingsField::MaxTokens) {
+            format!("{}_", self.input_buffer)
+        } else {
+            self.temp_config.max_tokens.to_string()
+        };
+
+        let temperature_value = if is_editing && matches!(self.selected_field, SettingsField::Temperature) {
+            format!("{}_", self.input_buffer)
+        } else {
+            format!("{:.2}", self.temp_config.temperature)
         };
 
         let mut settings_text = vec![
             Line::from(""),
             Line::from(vec![
-                "  API Host: ".into(),
-                host_value.set_style(host_style),
+                "  API Host:        ".into(),
+                host_value.set_style(field_style(SettingsField::Host)),
             ]),
             Line::from(""),
             Line::from(vec![
-                "  API Port: ".into(),
-                port_value.set_style(port_style),
+                "  API Port:        ".into(),
+                port_value.set_style(field_style(SettingsField::Port)),
+            ]),
+            Line::from(""),
+            Line::from(vec![
+                "  Max Tokens:      ".into(),
+                max_tokens_value.set_style(field_style(SettingsField::MaxTokens)),
+            ]),
+            Line::from(""),
+            Line::from(vec![
+                "  Temperature:     ".into(),
+                temperature_value.set_style(field_style(SettingsField::Temperature)),
             ]),
             Line::from(""),
             Line::from(vec![
@@ -142,15 +158,19 @@ impl App {
 
     fn settings_up(&mut self) {
         self.selected_field = match self.selected_field {
-            SettingsField::Port => SettingsField::Host,
             SettingsField::Host => SettingsField::Host,
+            SettingsField::Port => SettingsField::Host,
+            SettingsField::MaxTokens => SettingsField::Port,
+            SettingsField::Temperature => SettingsField::MaxTokens,
         };
     }
 
     fn settings_down(&mut self) {
         self.selected_field = match self.selected_field {
             SettingsField::Host => SettingsField::Port,
-            SettingsField::Port => SettingsField::Port,
+            SettingsField::Port => SettingsField::MaxTokens,
+            SettingsField::MaxTokens => SettingsField::Temperature,
+            SettingsField::Temperature => SettingsField::Temperature,
         };
     }
 
@@ -158,6 +178,8 @@ impl App {
         self.input_buffer = match self.selected_field {
             SettingsField::Host => self.temp_config.api_host.clone(),
             SettingsField::Port => self.temp_config.api_port.to_string(),
+            SettingsField::MaxTokens => self.temp_config.max_tokens.to_string(),
+            SettingsField::Temperature => format!("{:.2}", self.temp_config.temperature),
         };
         self.status_message.clear();
     }
@@ -175,6 +197,24 @@ impl App {
                 }
                 Err(_) => {
                     self.status_message = "Invalid port number!".to_string();
+                }
+            },
+            SettingsField::MaxTokens => match self.input_buffer.parse::<u32>() {
+                Ok(tokens) if tokens > 0 && tokens <= 100000 => {
+                    self.temp_config.max_tokens = tokens;
+                    self.status_message = "Max tokens updated (press 's' to save)".to_string();
+                }
+                _ => {
+                    self.status_message = "Invalid max tokens (must be 1-100000)!".to_string();
+                }
+            },
+            SettingsField::Temperature => match self.input_buffer.parse::<f32>() {
+                Ok(temp) if temp >= 0.0 && temp <= 2.0 => {
+                    self.temp_config.temperature = temp;
+                    self.status_message = "Temperature updated (press 's' to save)".to_string();
+                }
+                _ => {
+                    self.status_message = "Invalid temperature (must be 0.0-2.0)!".to_string();
                 }
             },
         }
