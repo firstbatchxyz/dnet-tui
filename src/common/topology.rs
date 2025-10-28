@@ -3,12 +3,22 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TopologyInfo {
+    /// The model that this topology was configured for.
+    ///
+    /// This means that the profiling was done for the given model, and does
+    /// not necessarily mean that the model is currently loaded!
     pub model: String,
+    /// Number of layers in the model.
     pub num_layers: u32,
+    /// The list of discovered **shards**.
     pub devices: Vec<DeviceProperties>,
+    /// Assignments of layers to services.
+    ///
+    /// Each [`Assignment`] describes which layers are assigned to which service,
+    /// and the `service` field corresponds to the `instance` field in [`DeviceProperties`].
     pub assignments: Vec<Assignment>,
     // can be anything
-    pub solution: Option<serde_json::Value>,
+    // pub solution: Option<serde_json::Value>,
 }
 
 impl TopologyInfo {
@@ -24,6 +34,7 @@ impl TopologyInfo {
         // Check if the response contains an error detail message (for any status code)
         if let Ok(error_response) = serde_json::from_str::<serde_json::Value>(&text) {
             if let Some(detail) = error_response.get("detail").and_then(|d| d.as_str()) {
+                // FIXME: ???
                 if detail.contains("No topology configured") || detail.contains("prepare_topology")
                 {
                     return Err(color_eyre::eyre::eyre!("No topology configured"));

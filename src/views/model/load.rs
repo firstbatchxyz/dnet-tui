@@ -326,8 +326,11 @@ impl App {
                                     LoadModelState::Success(response),
                                 ));
                                 // Fetch topology after successful model load
-                                if let Ok(topology) = crate::common::TopologyInfo::fetch(&self.config.api_url()).await {
+                                if let Ok(topology) =
+                                    crate::common::TopologyInfo::fetch(&self.config.api_url()).await
+                                {
                                     self.topology_info = Some(topology);
+                                    self.loaded_model = Some(model_name);
                                 }
                             }
                             Err(err) => {

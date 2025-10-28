@@ -37,6 +37,7 @@ pub enum ManualAssignmentState {
     Error(String),
 }
 
+// FIXME: kinda same as DeviceProperties but with `model_loaded` and `assigned_layers`
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ShardInfo {
     pub instance: String,

@@ -54,12 +54,9 @@ pub struct App {
     pub pending_chat_message: Option<String>,
     /// Chat message receiver for streaming responses
     pub chat_stream_rx: Option<mpsc::UnboundedReceiver<String>>,
-    /// FIXME: this will be the currently loaded model
-    ///
     /// While the topology info also contains the loaded model,
     /// one can unload the model while preserving topology etc.
-    // pub loaded_model: Option<String>,
-
+    pub loaded_model: Option<String>,
     /// Current topology information (exists only when a model is loaded)
     pub topology_info: Option<crate::common::TopologyInfo>,
 }
@@ -85,6 +82,7 @@ impl App {
             last_topology_check: Instant::now(),
             pending_chat_message: None,
             chat_stream_rx: None,
+            loaded_model: None,
             topology_info: None,
         })
     }

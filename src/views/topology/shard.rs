@@ -177,24 +177,21 @@ impl App {
 
         // Queue information
         lines.push("━━━ Queue Status ━━━".bold().cyan().into());
-        let queue_display = if health.queue_size == 0 {
-            Line::from(vec![
-                "  Queue Size:     ".into(),
+        let (queue_health, queue_status) = match health.queue_size {
+            0 => (
                 health.queue_size.to_string().bold().green(),
-                " (idle)".dark_gray(),
-            ])
-        } else if health.queue_size < 10 {
-            Line::from(vec![
-                "  Queue Size:     ".into(),
+                "idle".dark_gray(),
+            ),
+            1..=9 => (
                 health.queue_size.to_string().bold().yellow(),
-            ])
-        } else {
-            Line::from(vec![
-                "  Queue Size:     ".into(),
+                "active".dark_gray(),
+            ),
+            _ => (
                 health.queue_size.to_string().bold().red(),
-                " (busy)".dark_gray(),
-            ])
+                "busy".dark_gray(),
+            ),
         };
+        let queue_display = format!("  Queue Size:     {queue_health} ({})", queue_status).into();
         lines.push(queue_display);
 
         frame.render_widget(

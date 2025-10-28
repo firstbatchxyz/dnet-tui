@@ -122,7 +122,8 @@ impl crate::App {
                     self.state = crate::AppState::Model(super::ModelState::Unload(
                         UnloadModelState::Success,
                     ));
-                    self.topology_info = None; // Clear topology since model is unloaded
+                    self.loaded_model = None;
+                    // FIXME: better handling here w.r.t model & topology?
                 }
                 Err(err) => {
                     self.state = crate::AppState::Model(super::ModelState::Unload(

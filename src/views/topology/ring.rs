@@ -416,9 +416,8 @@ impl crate::App {
         match TopologyInfo::fetch(&self.config.api_url()).await {
             Ok(topology) => {
                 self.topology_info = Some(topology);
-                self.state = AppState::Topology(super::TopologyState::Ring(
-                    TopologyRingState::Loaded,
-                ));
+                self.state =
+                    AppState::Topology(super::TopologyState::Ring(TopologyRingState::Loaded));
             }
             Err(err) => {
                 // TODO: handle this better
@@ -475,5 +474,15 @@ mod tests {
         ];
         let formatted = TopologyInfo::format_layers(&layers);
         assert_eq!(formatted, "[0..11, 12..23, 24..35, 36]");
+
+        // edge case: empty
+        let layers_empty: Vec<Vec<u32>> = vec![];
+        let formatted_empty = TopologyInfo::format_layers(&layers_empty);
+        assert_eq!(formatted_empty, "[]");
+
+        // ignored case: missing numbers
+        let layers_missing = vec![vec![0, 1, /*2, 3,*/ 4, 5, /*6,*/ 7]];
+        let formatted_missing = TopologyInfo::format_layers(&layers_missing);
+        assert_eq!(formatted_missing, "[0..7]");
     }
 }

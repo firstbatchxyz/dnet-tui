@@ -25,12 +25,24 @@ pub enum MenuItem {
 }
 
 impl MenuItem {
+    /// Determines if the menu item should be disabled based on current app state.
+    pub fn is_disabled(&self, model_loaded: bool, topology_loaded: bool) -> bool {
+        match self {
+            MenuItem::Chat => !model_loaded,
+            MenuItem::LoadModel => model_loaded,
+            MenuItem::UnloadModel => !model_loaded,
+
+            MenuItem::ViewTopology => !topology_loaded,
+
+            _ => false,
+        }
+    }
     /// Formats a menu item for display.
-    pub fn fmt(&self, topology_loaded: bool) -> String {
+    pub fn fmt(&self, model_loaded: bool, topology_loaded: bool) -> String {
         format!(
             "{:<15}: {}",
             self.label(),
-            self.description(topology_loaded)
+            self.description(model_loaded, topology_loaded)
         )
     }
 
@@ -60,10 +72,10 @@ impl MenuItem {
         }
     }
 
-    pub fn description(&self, topology_loaded: bool) -> &str {
+    pub fn description(&self, model_loaded: bool, topology_loaded: bool) -> &str {
         match self {
             MenuItem::Chat => {
-                if topology_loaded {
+                if model_loaded {
                     "Chat with loaded model"
                 } else {
                     "Chat (no model loaded)"
@@ -77,9 +89,15 @@ impl MenuItem {
                     "View topology (no topology available)"
                 }
             }
-            MenuItem::LoadModel => "Prepare & load a model",
+            MenuItem::LoadModel => {
+                if model_loaded {
+                    "Load a model (model already loaded)"
+                } else {
+                    "Load a model"
+                }
+            }
             MenuItem::UnloadModel => {
-                if topology_loaded {
+                if model_loaded {
                     "Unload model"
                 } else {
                     "Unload model (no model loaded)"
@@ -97,10 +115,10 @@ impl MenuItem {
     }
 
     /// The total width of the menu when fully rendered.
-    pub fn total_width(topology_loaded: bool) -> u16 {
+    pub fn total_width(model_loaded: bool, topology_loaded: bool) -> u16 {
         Self::all()
             .iter()
-            .map(|item| item.fmt(topology_loaded).len() as u16)
+            .map(|item| item.fmt(model_loaded, topology_loaded).len() as u16)
             .max()
             .unwrap_or(0)
     }
@@ -118,11 +136,13 @@ impl App {
 
             match crate::common::TopologyInfo::fetch(&self.config.api_url()).await {
                 Ok(topology) => {
+                    self.loaded_model = Some(topology.model.clone());
                     self.topology_info = Some(topology);
                 }
                 Err(_) => {
                     // If topology fetch fails, clear it (model not loaded or not configured)
                     self.topology_info = None;
+                    self.loaded_model = None;
                 }
             }
         }
@@ -153,10 +173,8 @@ impl App {
             .enumerate()
             .map(|(i, item)| {
                 // decide style based on selection and availability
-                let is_disabled = matches!(
-                    item,
-                    MenuItem::Chat | MenuItem::UnloadModel | MenuItem::ViewTopology
-                ) && self.topology_info.is_none();
+                let is_disabled =
+                    item.is_disabled(self.loaded_model.is_some(), self.topology_info.is_some());
                 let is_selected = i == self.selected_menu;
 
                 let style = match (is_selected, is_disabled) {
@@ -176,7 +194,8 @@ impl App {
                     (false, false) => Style::default(),
                 };
 
-                ListItem::new(item.fmt(self.topology_info.is_some())).style(style)
+                ListItem::new(item.fmt(self.loaded_model.is_some(), self.topology_info.is_some()))
+                    .style(style)
             })
             .collect();
 
@@ -191,7 +210,8 @@ impl App {
         .areas(menu_area);
 
         // Calculate horizontal centering for menu
-        let menu_width = MenuItem::total_width(self.topology_info.is_some());
+        let menu_width =
+            MenuItem::total_width(self.loaded_model.is_some(), self.topology_info.is_some());
         let left_padding = (vertical_centered_area.width.saturating_sub(menu_width)) / 2;
         let [_, centered_menu_area, _] = Layout::horizontal([
             Constraint::Length(left_padding),
@@ -242,10 +262,8 @@ impl App {
             MenuItem::Chat => {
                 if let Some(topology) = &self.topology_info {
                     let model = topology.model.clone();
-                    self.state = AppState::Chat(crate::chat::ChatState::new(
-                        model,
-                        self.config.max_tokens,
-                    ));
+                    self.state =
+                        AppState::Chat(crate::chat::ChatState::new(model, self.config.max_tokens));
                 } else {
                     // if topology not loaded, do nothing (item is disabled)
                 }
@@ -262,11 +280,15 @@ impl App {
                 }
             }
             MenuItem::LoadModel => {
-                self.state = AppState::Model(super::model::ModelState::Load(
-                    LoadModelState::SelectingModel,
-                ));
-                self.selected_model = 0;
-                self.status_message.clear();
+                if self.loaded_model.is_some() {
+                    // if model already loaded, do nothing (item is disabled)
+                } else {
+                    self.state = AppState::Model(super::model::ModelState::Load(
+                        LoadModelState::SelectingModel,
+                    ));
+                    self.selected_model = 0;
+                    self.status_message.clear();
+                }
             }
             MenuItem::UnloadModel => {
                 if self.topology_info.is_some() {
