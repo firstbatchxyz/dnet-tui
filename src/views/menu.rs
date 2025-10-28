@@ -29,7 +29,7 @@ impl MenuItem {
     pub fn is_disabled(&self, model_loaded: bool, topology_loaded: bool) -> bool {
         match self {
             MenuItem::Chat => !model_loaded,
-            MenuItem::LoadModel => model_loaded,
+            // MenuItem::LoadModel => model_loaded,
             MenuItem::UnloadModel => !model_loaded,
 
             MenuItem::ViewTopology => !topology_loaded,
@@ -90,11 +90,13 @@ impl MenuItem {
                 }
             }
             MenuItem::LoadModel => {
-                if model_loaded {
-                    "Load a model (model already loaded)"
-                } else {
-                    "Load a model"
-                }
+                "Load a model"
+                // FIXME: !!!
+                // if model_loaded {
+                //     "Load a model (model already loaded)"
+                // } else {
+                //     "Load a model"
+                // }
             }
             MenuItem::UnloadModel => {
                 if model_loaded {
@@ -128,7 +130,7 @@ impl App {
     /// Handle async operations for menu state (called during tick).
     pub(crate) async fn tick_menu(&mut self) {
         // Check topology every few seconds to avoid excessive API calls
-        const TOPOLOGY_CHECK_INTERVAL: std::time::Duration = std::time::Duration::from_secs(2);
+        const TOPOLOGY_CHECK_INTERVAL: std::time::Duration = std::time::Duration::from_secs(1);
 
         let now = std::time::Instant::now();
         if now.duration_since(self.last_topology_check) >= TOPOLOGY_CHECK_INTERVAL {
