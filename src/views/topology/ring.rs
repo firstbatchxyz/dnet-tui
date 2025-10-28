@@ -176,7 +176,7 @@ impl crate::App {
         struct DeviceInfo {
             x: f64,
             y: f64,
-            name: String,
+            instance: String,
             ip: String,
             layers: String,
             is_selected: bool,
@@ -195,7 +195,8 @@ impl crate::App {
             let Some(assignment) = topology
                 .assignments
                 .iter()
-                .find(|a| a.service.contains(&device.instance))
+                // TODO: could be done with equals perhaps
+                .find(|a| a.instance.contains(&device.instance))
             else {
                 continue;
             };
@@ -224,7 +225,7 @@ impl crate::App {
             devices_info.push(DeviceInfo {
                 x,
                 y,
-                name: short_name,
+                instance: short_name,
                 ip,
                 layers,
                 is_selected,
@@ -241,7 +242,7 @@ impl crate::App {
                     // TODO: clone with `.clone()`
                     d.x,
                     d.y,
-                    d.name.clone(),
+                    d.instance.clone(),
                     d.ip.clone(),
                     d.layers.clone(),
                     d.is_selected,

@@ -15,8 +15,6 @@ pub struct DeviceProperties {
     #[serde(default)]
     pub is_busy: bool,
     /// The instance name, e.g., "shard-01".
-    /// FIXME: name mismatch issues due to prepare_topology vs devices arrays
-    #[serde(rename(serialize = "name", deserialize = "instance"))]
     pub instance: String,
     /// The port that HTTP server listens on.
     pub server_port: u16,

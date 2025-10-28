@@ -22,6 +22,6 @@ pub struct ShardHealthResponse {
     pub grpc_port: u16,
     /// HTTP server port
     pub http_port: u16,
-    /// Short shard instance name (service label)
+    /// Shard name
     pub instance: String,
 }

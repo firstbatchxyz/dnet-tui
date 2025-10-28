@@ -12,10 +12,10 @@ pub struct TopologyInfo {
     pub num_layers: u32,
     /// The list of discovered **shards**.
     pub devices: Vec<DeviceProperties>,
-    /// Assignments of layers to services.
+    /// Assignments of layers to instances.
     ///
-    /// Each [`Assignment`] describes which layers are assigned to which service,
-    /// and the `service` field corresponds to the `instance` field in [`DeviceProperties`].
+    /// Each [`Assignment`] describes which layers are assigned to which instancee,
+    /// and the `instance` field corresponds to the `instance` field in [`DeviceProperties`].
     pub assignments: Vec<Assignment>,
     // can be anything
     // pub solution: Option<serde_json::Value>,
@@ -74,10 +74,11 @@ pub struct ManualTopologyInfo {
     pub assignments: Vec<Assignment>,
 }
 
+// FIXME: same as `AssignmentInfo`
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Assignment {
-    pub service: String,
+    pub instance: String,
     pub layers: Vec<Vec<u32>>,
-    pub next_service: String,
+    pub next_instance: String,
     pub window_size: u32,
 }

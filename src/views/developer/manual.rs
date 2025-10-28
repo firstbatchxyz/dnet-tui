@@ -59,12 +59,10 @@ struct ManualTopologyRequest {
 
 #[derive(Debug, Serialize)]
 struct AssignmentInfo {
-    // FIXME: this should be named "instance"
-    service: String,
+    instance: String,
     layers: Vec<Vec<u32>>,
     window_size: u32,
-    // FIXME: this should be named "next_instance"
-    next_service: String,
+    next_instance: String,
 }
 
 impl crate::App {
@@ -565,8 +563,8 @@ fn find_missing_layers(assigned: &HashSet<u32>, total: u32) -> Vec<u32> {
     missing
 }
 
-fn determine_next_services(assignments: &HashMap<String, Vec<u32>>) -> HashMap<String, String> {
-    let mut next_services = HashMap::new();
+fn determine_next_instances(assignments: &HashMap<String, Vec<u32>>) -> HashMap<String, String> {
+    let mut next_instances = HashMap::new();
 
     // Create a map of first_layer -> shard
     let mut layer_to_shard: HashMap<u32, String> = HashMap::new();
@@ -584,17 +582,17 @@ fn determine_next_services(assignments: &HashMap<String, Vec<u32>>) -> HashMap<S
 
             // Find the shard that has max_layer + 1
             if let Some(next_shard) = layer_to_shard.get(&(max_layer + 1)) {
-                next_services.insert(shard.clone(), next_shard.clone());
+                next_instances.insert(shard.clone(), next_shard.clone());
             } else {
                 // This is the last shard, connect back to the first
                 if let Some(first_shard) = layer_to_shard.get(&0) {
-                    next_services.insert(shard.clone(), first_shard.clone());
+                    next_instances.insert(shard.clone(), first_shard.clone());
                 }
             }
         }
     }
 
-    next_services
+    next_instances
 }
 
 // API functions
@@ -659,8 +657,8 @@ impl ManualAssignmentState {
     ) -> color_eyre::Result<()> {
         let num_layers = get_model_layers(model);
 
-        // Determine next services automatically
-        let next_services = determine_next_services(assignments);
+        // Determine next instances automatically
+        let next_instances = determine_next_instances(assignments);
 
         // Build devices array
         let devices: Vec<DeviceProperties> = shards
@@ -682,7 +680,7 @@ impl ManualAssignmentState {
             .iter()
             .filter_map(|shard| {
                 assignments.get(&shard.instance).map(|layers| {
-                    let next_service = next_services
+                    let next_instance = next_instances
                         .get(&shard.instance)
                         .and_then(|next_instance| {
                             shards
@@ -693,10 +691,10 @@ impl ManualAssignmentState {
                         .unwrap_or_else(|| shard.instance.clone());
 
                     AssignmentInfo {
-                        service: shard.instance.clone(),
+                        instance: shard.instance.clone(),
                         layers: vec![layers.clone()],
                         window_size: layers.len() as u32,
-                        next_service: next_service,
+                        next_instance,
                     }
                 })
             })

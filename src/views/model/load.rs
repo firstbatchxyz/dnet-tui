@@ -13,8 +13,8 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ShardLoadStatus {
-    /// Shard service name
-    pub service_name: String,
+    /// Shard name
+    pub instance: String,
     /// Whether loading succeeded
     pub success: bool,
     /// Layers successfully loaded
@@ -221,8 +221,7 @@ impl App {
             };
 
             lines.push(
-                Line::from(format!("  {} {}", status_icon, shard_status.service_name))
-                    .fg(status_color),
+                Line::from(format!("  {} {}", status_icon, shard_status.instance)).fg(status_color),
             );
 
             if let Some(layers) = &shard_status.layers_loaded {
