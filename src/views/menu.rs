@@ -138,13 +138,11 @@ impl App {
 
             match crate::common::TopologyInfo::fetch(&self.config.api_url()).await {
                 Ok(topology) => {
-                    self.loaded_model = Some(topology.model.clone());
-                    self.topology_info = Some(topology);
+                    self.topology = Some(topology);
                 }
                 Err(_) => {
                     // If topology fetch fails, clear it (model not loaded or not configured)
-                    self.topology_info = None;
-                    self.loaded_model = None;
+                    self.topology = None;
                 }
             }
         }
@@ -169,14 +167,16 @@ impl App {
 
         frame.render_widget(Paragraph::new(ascii_art).centered(), art_area);
 
+        let is_topology_loaded = self.topology.is_some();
+        let is_model_loaded = self.topology.as_ref().is_some_and(|t| t.model.is_some());
+
         // Menu items
         let menu_items: Vec<ListItem> = MenuItem::all()
             .iter()
             .enumerate()
             .map(|(i, item)| {
                 // decide style based on selection and availability
-                let is_disabled =
-                    item.is_disabled(self.loaded_model.is_some(), self.topology_info.is_some());
+                let is_disabled = item.is_disabled(is_model_loaded, is_topology_loaded);
                 let is_selected = i == self.selected_menu;
 
                 let style = match (is_selected, is_disabled) {
@@ -196,8 +196,7 @@ impl App {
                     (false, false) => Style::default(),
                 };
 
-                ListItem::new(item.fmt(self.loaded_model.is_some(), self.topology_info.is_some()))
-                    .style(style)
+                ListItem::new(item.fmt(is_model_loaded, is_topology_loaded)).style(style)
             })
             .collect();
 
@@ -212,8 +211,7 @@ impl App {
         .areas(menu_area);
 
         // Calculate horizontal centering for menu
-        let menu_width =
-            MenuItem::total_width(self.loaded_model.is_some(), self.topology_info.is_some());
+        let menu_width = MenuItem::total_width(is_model_loaded, is_topology_loaded);
         let left_padding = (vertical_centered_area.width.saturating_sub(menu_width)) / 2;
         let [_, centered_menu_area, _] = Layout::horizontal([
             Constraint::Length(left_padding),
@@ -262,10 +260,11 @@ impl App {
     fn select_menu_item(&mut self) {
         match MenuItem::all()[self.selected_menu] {
             MenuItem::Chat => {
-                if let Some(topology) = &self.topology_info {
-                    let model = topology.model.clone();
-                    self.state =
-                        AppState::Chat(crate::chat::ChatState::new(model, self.config.max_tokens));
+                if let Some(model) = &self.topology.as_ref().and_then(|t| t.model.clone()) {
+                    self.state = AppState::Chat(crate::chat::ChatState::new(
+                        model.clone(),
+                        self.config.max_tokens,
+                    ));
                 } else {
                     // if topology not loaded, do nothing (item is disabled)
                 }
@@ -274,7 +273,7 @@ impl App {
                 self.state = AppState::Devices(crate::devices::DevicesState::Loading);
             }
             MenuItem::ViewTopology => {
-                if self.topology_info.is_some() {
+                if self.topology.is_some() {
                     self.state = AppState::Topology(TopologyState::Ring(TopologyRingState::Loaded));
                     self.selected_device = 0;
                 } else {
@@ -282,7 +281,7 @@ impl App {
                 }
             }
             MenuItem::LoadModel => {
-                if self.loaded_model.is_some() {
+                if self.topology.as_ref().is_some_and(|t| t.model.is_some()) {
                     // if model already loaded, do nothing (item is disabled)
                 } else {
                     self.state = AppState::Model(super::model::ModelState::Load(
@@ -293,7 +292,7 @@ impl App {
                 }
             }
             MenuItem::UnloadModel => {
-                if self.topology_info.is_some() {
+                if self.topology.is_some() {
                     self.state = AppState::Model(super::model::ModelState::Unload(
                         UnloadModelState::Unloading,
                     ));

@@ -124,8 +124,8 @@ impl crate::App {
                 );
             }
             TopologyRingState::Loaded => {
-                if let Some(topology) = self.topology_info.clone() {
-                    self.draw_topology_ring(frame, content_area, &topology);
+                if self.topology.is_some() {
+                    self.draw_topology_ring(frame, content_area);
                 } else {
                     frame.render_widget(
                         Paragraph::new("No topology data available")
@@ -147,13 +147,17 @@ impl crate::App {
         frame.render_widget(Paragraph::new(footer_text).centered(), footer_area);
     }
 
-    pub fn draw_topology_ring(
-        &mut self,
-        frame: &mut Frame,
-        area: ratatui::layout::Rect,
-        topology: &TopologyInfo,
-    ) {
+    pub fn draw_topology_ring(&mut self, frame: &mut Frame, area: ratatui::layout::Rect) {
         use std::f64::consts::PI;
+        let Some(topology) = &self.topology else {
+            frame.render_widget(
+                Paragraph::new("No topology data available")
+                    .block(Block::bordered())
+                    .centered(),
+                area,
+            );
+            return;
+        };
 
         let num_devices = topology.devices.len();
         if num_devices == 0 {
@@ -254,16 +258,17 @@ impl crate::App {
 
         let model_info = format!(
             "Model: {}  |  Layers: {}",
-            topology.model, topology.num_layers
+            topology.model.clone().unwrap_or("<not loaded>".into()),
+            topology.num_layers
         );
 
-        // Draw canvas with ring
+        // draw canvas with ring
         let canvas = Canvas::default()
             .block(Block::bordered().title(model_info))
             .x_bounds([-60.0, 60.0])
             .y_bounds([-60.0, 60.0])
             .paint(move |ctx| {
-                // Draw the circle
+                // draw the circle
                 ctx.draw(&Circle {
                     x: center_x,
                     y: center_y,
@@ -271,7 +276,7 @@ impl crate::App {
                     color: Color::Cyan,
                 });
 
-                // Draw connection lines between devices
+                // draw connection lines between devices
                 for i in 0..devices_clone.len() {
                     let (x1, y1, _, _, _, _, _, _) = devices_clone[i];
                     let next_i = (i + 1) % devices_clone.len();
@@ -362,7 +367,7 @@ impl crate::App {
         if let AppState::Topology(super::TopologyState::Ring(TopologyRingState::Loaded)) =
             &self.state
         {
-            if let Some(topology) = &self.topology_info {
+            if let Some(topology) = &self.topology {
                 let device_count = topology.devices.len();
                 if device_count > 0 {
                     // Cycle: if at 0, wrap to last device
@@ -380,7 +385,7 @@ impl crate::App {
         if let AppState::Topology(super::TopologyState::Ring(TopologyRingState::Loaded)) =
             &self.state
         {
-            if let Some(topology) = &self.topology_info {
+            if let Some(topology) = &self.topology {
                 let device_count = topology.devices.len();
                 if device_count > 0 {
                     // Cycle: if at last, wrap to 0
@@ -394,7 +399,7 @@ impl crate::App {
         if let AppState::Topology(super::TopologyState::Ring(TopologyRingState::Loaded)) =
             &self.state
         {
-            if let Some(topology) = &self.topology_info {
+            if let Some(topology) = &self.topology {
                 if let Some(device) = topology.devices.get(self.selected_device) {
                     self.state = AppState::Topology(super::TopologyState::Shard(
                         device.instance.clone(),
@@ -416,7 +421,7 @@ impl crate::App {
     async fn load_topology(&mut self) {
         match TopologyInfo::fetch(&self.config.api_url()).await {
             Ok(topology) => {
-                self.topology_info = Some(topology);
+                self.topology = Some(topology);
                 self.state =
                     AppState::Topology(super::TopologyState::Ring(TopologyRingState::Loaded));
             }

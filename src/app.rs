@@ -1,4 +1,5 @@
 use crate::chat::ChatState;
+use crate::common::TopologyInfo;
 use crate::config::Config;
 use crate::developer::DeveloperState;
 use crate::devices::DevicesState;
@@ -6,7 +7,7 @@ use crate::model::ModelState;
 use crate::settings::SettingsField;
 use crate::topology::TopologyState;
 use crossterm::event::EventStream;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -54,11 +55,8 @@ pub struct App {
     pub pending_chat_message: Option<String>,
     /// Chat message receiver for streaming responses
     pub chat_stream_rx: Option<mpsc::UnboundedReceiver<String>>,
-    /// While the topology info also contains the loaded model,
-    /// one can unload the model while preserving topology etc.
-    pub loaded_model: Option<String>,
-    /// Current topology information (exists only when a model is loaded)
-    pub topology_info: Option<crate::common::TopologyInfo>,
+    /// Current topology (if present).
+    pub topology: Option<TopologyInfo>,
 }
 
 impl App {
@@ -79,11 +77,11 @@ impl App {
             input_buffer: String::new(),
             status_message: String::new(),
             animation_start: Instant::now(),
-            last_topology_check: Instant::now(),
+            // make this older to trigger immediate check
+            last_topology_check: Instant::now() - Duration::from_secs(10),
             pending_chat_message: None,
             chat_stream_rx: None,
-            loaded_model: None,
-            topology_info: None,
+            topology: None,
         })
     }
 

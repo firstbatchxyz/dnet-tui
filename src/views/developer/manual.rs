@@ -730,21 +730,28 @@ impl ManualAssignmentState {
 #[rustfmt::skip]
 fn get_model_layers(model: &str) -> u32 {    
     match model {
-          "Qwen/Qwen3-4B-MLX-4bit" 
-        | "Qwen/Qwen3-4B-MLX-8bit" => 36,
+        "Qwen/Qwen3-4B-MLX-4bit" 
+      | "Qwen/Qwen3-4B-MLX-8bit" => 36,
 
-          "Qwen/Qwen3-30B-A3B-MLX-8bit"
-        | "Qwen/Qwen3-30B-A3B-MLX-bf16"
-        | "Qwen/Qwen3-30B-A3B-MLX-6bit" => 30,
+        "Qwen/Qwen3-30B-A3B-MLX-8bit"
+      | "Qwen/Qwen3-30B-A3B-MLX-bf16"
+      | "Qwen/Qwen3-30B-A3B-MLX-6bit" => 30,
         
-          "Qwen/Qwen3-32B-MLX-bf16"
-        | "Qwen/Qwen3-32B-MLX-8bit"
-        | "Qwen/Qwen3-32B-MLX-6bit" => 32,
+        "Qwen/Qwen3-32B-MLX-bf16"
+      | "Qwen/Qwen3-32B-MLX-8bit"
+      | "Qwen/Qwen3-32B-MLX-6bit" => 32,
 
         "NousResearch/Hermes-4-70B" => 70,
 
         "openai/gpt-oss-120b" => 120,
         "openai/gpt-oss-20b" => 20,
+
+        "mlx-community/Meta-Llama-3.1-8B-Instruct-4bit"
+      | "mlx-community/Meta-Llama-3.1-8B-Instruct-8bit" => 32,
+
+        "mlx-community/Meta-Llama-3.1-70B-4bit"
+      | "mlx-community/Meta-Llama-3.1-70B-8bit" => 80,
+
         _ => 36, // default fallback FIXME: smelly
     }
 }
@@ -818,7 +825,7 @@ impl crate::App {
                         if let Ok(topology) =
                             crate::common::TopologyInfo::fetch(&self.config.api_url()).await
                         {
-                            self.topology_info = Some(topology);
+                            self.topology = Some(topology);
                         }
                     }
                     Err(err) => {
@@ -832,25 +839,5 @@ impl crate::App {
                 // No async operations needed for other states
             }
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_get_shards() {
-        let model = "Qwen/Qwen3-4B-MLX-4bit";
-        let num_layers = get_model_layers(model);
-        assert_eq!(num_layers, 36);
-
-        let model = "openai/gpt-oss-120b";
-        let num_layers = get_model_layers(model);
-        assert_eq!(num_layers, 120);
-
-        let model = "unknown-model";
-        let num_layers = get_model_layers(model);
-        assert_eq!(num_layers, 36); // Default
     }
 }

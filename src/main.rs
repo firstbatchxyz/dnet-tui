@@ -62,7 +62,7 @@ impl App {
                     self.tick_chat(&chat_state).await;
                 }
                 _ => {
-                    // No async operations for Settings
+                    // no async operations for Settings
                 }
             }
 
