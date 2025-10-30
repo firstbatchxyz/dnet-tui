@@ -1,6 +1,8 @@
 use super::DeveloperState;
 use crate::AppState;
-use crate::common::{DeviceProperties, DevicesResponse, ShardHealthResponse};
+use crate::common::{
+    AssignmentInfo, DeviceProperties, DevicesResponse, ShardHealthResponse, TopologyInfo,
+};
 use crate::constants::AVAILABLE_MODELS;
 use color_eyre::eyre::Context;
 use crossterm::event::{KeyCode, KeyEvent};
@@ -37,32 +39,12 @@ pub enum ManualAssignmentState {
     Error(String),
 }
 
-// FIXME: kinda same as DeviceProperties but with `model_loaded` and `assigned_layers`
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ShardInfo {
-    pub instance: String,
-    pub local_ip: String,
-    pub server_port: u16,
-    pub shard_port: u16,
+    #[serde(flatten)]
+    pub device: DeviceProperties,
     pub model_loaded: bool,
     pub assigned_layers: Vec<u32>,
-}
-
-// FIXME: kinda same as `TopologyInfo`
-#[derive(Debug, Serialize)]
-struct ManualTopologyRequest {
-    model: String,
-    devices: Vec<DeviceProperties>,
-    assignments: Vec<AssignmentInfo>,
-    num_layers: u32,
-}
-
-#[derive(Debug, Serialize)]
-struct AssignmentInfo {
-    instance: String,
-    layers: Vec<Vec<u32>>,
-    window_size: u32,
-    next_instance: String,
 }
 
 impl crate::App {
@@ -250,14 +232,18 @@ impl crate::App {
 
         for (i, shard) in shards.iter().enumerate() {
             let shard_layers = assignments
-                .get(&shard.instance)
+                .get(&shard.device.instance)
                 .cloned()
                 .unwrap_or_default();
 
             let display_text = if shard_layers.is_empty() {
-                format!("{}", shard.instance)
+                format!("{}", shard.device.instance)
             } else {
-                format!("{}: {}", shard.instance, format_layers(&shard_layers))
+                format!(
+                    "{}: {}",
+                    shard.device.instance,
+                    format_layers(&shard_layers)
+                )
             };
 
             let is_selected = i == selected_shard;
@@ -390,8 +376,10 @@ impl crate::App {
                             // Parse and save layers
                             if let Some(layers) = parse_layer_input(&input_buffer, num_layers) {
                                 if selected_shard < shards.len() {
-                                    assignments
-                                        .insert(shards[selected_shard].instance.clone(), layers);
+                                    assignments.insert(
+                                        shards[selected_shard].device.instance.clone(),
+                                        layers,
+                                    );
                                 }
                             }
                             input_mode = false;
@@ -597,14 +585,8 @@ fn determine_next_instances(assignments: &HashMap<String, Vec<u32>>) -> HashMap<
 
 // API functions
 impl ManualAssignmentState {
-    pub async fn fetch_shards_with_model(
-        api_url: &str,
-        model: &str,
-    ) -> color_eyre::Result<(Vec<ShardInfo>, u32)> {
-        // Get model info to know number of layers
-        let num_layers = get_model_layers(model);
-
-        // Get devices from the /v1/devices endpoint
+    pub async fn fetch_shards_with_model(api_url: &str) -> color_eyre::Result<Vec<ShardInfo>> {
+        // get devices from the /v1/devices endpoint
         let devices_url = format!("{}/v1/devices", api_url);
         let response = reqwest::get(&devices_url)
             .await
@@ -612,16 +594,10 @@ impl ManualAssignmentState {
         let devices_response: DevicesResponse = response.json().await?;
 
         let mut shards = Vec::new();
-        for device in devices_response.devices.values() {
-            // Skip the API manager node
+        for device in devices_response.devices.into_values() {
             if device.is_manager {
-                continue;
+                continue; // skip the manager nodes (API)
             }
-
-            let instance = device.instance.clone();
-            let local_ip = device.local_ip.clone();
-            let server_port = device.server_port;
-            let shard_port = device.shard_port;
 
             // Get shard health info
             let health_url = format!("http://{}:{}/health", device.local_ip, device.server_port);
@@ -637,16 +613,13 @@ impl ManualAssignmentState {
                 };
 
             shards.push(ShardInfo {
-                instance,
-                local_ip,
-                server_port,
-                shard_port,
+                device,
                 model_loaded,
                 assigned_layers,
             });
         }
 
-        Ok((shards, num_layers))
+        Ok(shards)
     }
 
     pub async fn submit_manual_topology(
@@ -663,45 +636,38 @@ impl ManualAssignmentState {
         // Build devices array
         let devices: Vec<DeviceProperties> = shards
             .iter()
-            .filter(|s| assignments.contains_key(&s.instance))
-            .map(|shard| DeviceProperties {
-                instance: shard.instance.clone(),
-                local_ip: shard.local_ip.clone(),
-                server_port: shard.server_port,
-                shard_port: shard.shard_port,
-                is_busy: false,
-                is_manager: false,
-                thunderbolt: None,
-            })
+            .filter(|s| assignments.contains_key(&s.device.instance))
+            .map(|shard| shard.device.clone())
             .collect();
 
         // Build assignments array
         let assignment_infos: Vec<AssignmentInfo> = shards
             .iter()
             .filter_map(|shard| {
-                assignments.get(&shard.instance).map(|layers| {
+                assignments.get(&shard.device.instance).map(|layers| {
                     let next_instance = next_instances
-                        .get(&shard.instance)
+                        .get(&shard.device.instance)
                         .and_then(|next_instance| {
                             shards
                                 .iter()
-                                .find(|s| s.instance == *next_instance)
-                                .map(|s| s.instance.clone())
+                                .find(|s| s.device.instance == *next_instance)
+                                .map(|s| s.device.instance.clone())
                         })
-                        .unwrap_or_else(|| shard.instance.clone());
+                        .unwrap_or_else(|| shard.device.instance.clone());
 
                     AssignmentInfo {
-                        instance: shard.instance.clone(),
+                        instance: shard.device.instance.clone(),
                         layers: vec![layers.clone()],
                         window_size: layers.len() as u32,
+                        residency_size: layers.len() as u32, // FIXME: adjust this?
                         next_instance,
                     }
                 })
             })
             .collect();
 
-        let request = ManualTopologyRequest {
-            model: model.to_string(),
+        let request = TopologyInfo {
+            model: Some(model.to_string()),
             devices,
             assignments: assignment_infos,
             num_layers,
@@ -761,15 +727,12 @@ impl crate::App {
     pub(super) async fn tick_manual_assignment(&mut self, state: &ManualAssignmentState) {
         match state {
             ManualAssignmentState::FetchingShards(model) => {
-                let model = model.clone();
-                match ManualAssignmentState::fetch_shards_with_model(&self.config.api_url(), &model)
-                    .await
-                {
-                    Ok((shards, num_layers)) => {
+                match ManualAssignmentState::fetch_shards_with_model(&self.config.api_url()).await {
+                    Ok(shards) => {
                         self.state = AppState::Developer(DeveloperState::ManualAssignment(
                             ManualAssignmentState::AssigningLayers {
-                                model,
-                                num_layers,
+                                num_layers: get_model_layers(model),
+                                model: model.clone(),
                                 shards,
                                 assignments: HashMap::new(),
                                 selected_shard: 0,

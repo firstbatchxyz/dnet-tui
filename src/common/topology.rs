@@ -16,7 +16,7 @@ pub struct TopologyInfo {
     ///
     /// Each [`Assignment`] describes which layers are assigned to which instancee,
     /// and the `instance` field corresponds to the `instance` field in [`DeviceProperties`].
-    pub assignments: Vec<Assignment>,
+    pub assignments: Vec<AssignmentInfo>,
     // can be anything
     // pub solution: Option<serde_json::Value>,
 }
@@ -47,17 +47,10 @@ impl TopologyInfo {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ManualTopologyInfo {
-    pub model: String,
-    pub devices: Vec<DeviceProperties>,
-    pub assignments: Vec<Assignment>,
-}
-
-// FIXME: same as `AssignmentInfo`
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct Assignment {
+pub struct AssignmentInfo {
     pub instance: String,
     pub layers: Vec<Vec<u32>>,
     pub next_instance: String,
     pub window_size: u32,
+    pub residency_size: u32,
 }
