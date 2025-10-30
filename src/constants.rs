@@ -38,6 +38,12 @@ pub const AVAILABLE_MODELS: &[&str] = &[
     "openai/gpt-oss-20b",
     // nous
     "NousResearch/Hermes-4-70B",
+    // llama 8b
+    "mlx-community/Meta-Llama-3.1-8B-Instruct-4bit",
+    "mlx-community/Meta-Llama-3.1-8B-Instruct-8bit",
+    // llama 70b
+    "mlx-community/Meta-Llama-3.1-70B-Instruct-4bit",
+    "mlx-community/Meta-Llama-3.1-70B-Instruct-8bit",
 ];
 
 /// Version from `Cargo.toml`.

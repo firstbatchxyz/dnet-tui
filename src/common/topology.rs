@@ -17,6 +17,8 @@ pub struct TopologyInfo {
     /// Each [`Assignment`] describes which layers are assigned to which instancee,
     /// and the `instance` field corresponds to the `instance` field in [`DeviceProperties`].
     pub assignments: Vec<Assignment>,
+    /// Key-value cache quantization format: "4bit", "8bit", or "fp16".
+    pub kv_bits: Option<String>,
     // can be anything
     // pub solution: Option<serde_json::Value>,
 }
@@ -81,4 +83,5 @@ pub struct Assignment {
     pub layers: Vec<Vec<u32>>,
     pub next_instance: String,
     pub window_size: u32,
+    pub residency_size: u32,
 }

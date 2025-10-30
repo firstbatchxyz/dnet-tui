@@ -63,6 +63,7 @@ struct AssignmentInfo {
     layers: Vec<Vec<u32>>,
     window_size: u32,
     next_instance: String,
+    residency_size: u32,
 }
 
 impl crate::App {
@@ -695,6 +696,7 @@ impl ManualAssignmentState {
                         layers: vec![layers.clone()],
                         window_size: layers.len() as u32,
                         next_instance,
+                        residency_size: layers.len() as u32,  // Using window_size as residency_size for now
                     }
                 })
             })
@@ -730,21 +732,28 @@ impl ManualAssignmentState {
 #[rustfmt::skip]
 fn get_model_layers(model: &str) -> u32 {    
     match model {
-          "Qwen/Qwen3-4B-MLX-4bit" 
-        | "Qwen/Qwen3-4B-MLX-8bit" => 36,
+        "Qwen/Qwen3-4B-MLX-4bit" 
+      | "Qwen/Qwen3-4B-MLX-8bit" => 36,
 
-          "Qwen/Qwen3-30B-A3B-MLX-8bit"
-        | "Qwen/Qwen3-30B-A3B-MLX-bf16"
-        | "Qwen/Qwen3-30B-A3B-MLX-6bit" => 30,
+        "Qwen/Qwen3-30B-A3B-MLX-8bit"
+      | "Qwen/Qwen3-30B-A3B-MLX-bf16"
+      | "Qwen/Qwen3-30B-A3B-MLX-6bit" => 30,
         
-          "Qwen/Qwen3-32B-MLX-bf16"
-        | "Qwen/Qwen3-32B-MLX-8bit"
-        | "Qwen/Qwen3-32B-MLX-6bit" => 32,
+        "Qwen/Qwen3-32B-MLX-bf16"
+      | "Qwen/Qwen3-32B-MLX-8bit"
+      | "Qwen/Qwen3-32B-MLX-6bit" => 64,
 
         "NousResearch/Hermes-4-70B" => 70,
 
         "openai/gpt-oss-120b" => 120,
         "openai/gpt-oss-20b" => 20,
+
+        "mlx-community/Meta-Llama-3.1-8B-Instruct-4bit"
+      | "mlx-community/Meta-Llama-3.1-8B-Instruct-8bit" => 32,
+
+        "mlx-community/Meta-Llama-3.1-70B-Instruct-4bit"
+      | "mlx-community/Meta-Llama-3.1-70B-Instruct-8bit" => 80,
+
         _ => 36, // default fallback FIXME: smelly
     }
 }
