@@ -219,7 +219,7 @@ impl App {
     pub(super) async fn tick_topology_shard(&mut self, device: &str, state: &ShardViewState) {
         if matches!(state, ShardViewState::Loading) {
             // Find the device in the topology to get its IP and port
-            if let Some(topology) = &self.topology_info {
+            if let Some(topology) = &self.topology {
                 if let Some(dev) = topology.devices.iter().find(|d| d.instance == device) {
                     let device_ip = dev.local_ip.clone();
                     let http_port = dev.server_port;

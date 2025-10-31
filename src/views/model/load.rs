@@ -309,28 +309,20 @@ impl App {
         match state {
             LoadModelState::PreparingTopology(model) => {
                 match LoadModelState::prepare_topology(&self.config.api_url(), model).await {
-                    Ok(_topology) => {
-                        // Move to loading model state and trigger load
-                        let model_name = model.clone();
+                    Ok(topology) => {
+                        // move to loading model state and trigger load
                         self.state = AppState::Model(super::ModelState::Load(
-                            LoadModelState::LoadingModel(model_name.clone()),
+                            LoadModelState::LoadingModel(model.clone()),
                         ));
+                        self.topology = Some(topology);
 
-                        // Load the model - just pass the model name
-                        match LoadModelState::load_model(&self.config.api_url(), Some(&model_name))
-                            .await
+                        // load the model
+                        match LoadModelState::load_model(&self.config.api_url(), Some(&model)).await
                         {
-                            Ok(response) => {
+                            Ok(load_response) => {
                                 self.state = AppState::Model(super::ModelState::Load(
-                                    LoadModelState::Success(response),
+                                    LoadModelState::Success(load_response),
                                 ));
-                                // Fetch topology after successful model load
-                                if let Ok(topology) =
-                                    crate::common::TopologyInfo::fetch(&self.config.api_url()).await
-                                {
-                                    self.topology_info = Some(topology);
-                                    self.loaded_model = Some(model_name);
-                                }
                             }
                             Err(err) => {
                                 self.state = AppState::Model(super::ModelState::Load(
