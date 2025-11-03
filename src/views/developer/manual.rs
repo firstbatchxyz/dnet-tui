@@ -717,13 +717,13 @@ fn get_model_layers(model: &str) -> u32 {
 
         // gpt OSS 20b
         "openai/gpt-oss-20b"
-      | "mlx-community/gpt-oss-20b-MXFP4-Q4"
-      | "mlx-community/gpt-oss-20b-MXFP4-Q8" => 20,
+      | "mlx-community/gpt-oss-20b-MXFP4-Q4" 
+      | "mlx-community/gpt-oss-20b-MXFP4-Q8" => 24,
 
         // gpt OSS 120b
         "openai/gpt-oss-120b"
       | "mlx-community/gpt-oss-120b-MXFP4-Q4"
-      | "mlx-community/gpt-oss-120b-MXFP4-Q8" => 120,
+      | "mlx-community/gpt-oss-120b-MXFP4-Q8" => 36,
 
         _ => 36, // default fallback FIXME: smelly
     }
