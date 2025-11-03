@@ -51,6 +51,8 @@ pub struct App {
     pub animation_start: Instant,
     /// Last time we checked topology in the menu
     pub last_topology_check: Instant,
+    /// Last time we refreshed devices
+    pub last_devices_refresh: Instant,
     /// Pending chat message to send
     pub pending_chat_message: Option<String>,
     /// Chat message receiver for streaming responses
@@ -79,6 +81,8 @@ impl App {
             animation_start: Instant::now(),
             // make this older to trigger immediate check
             last_topology_check: Instant::now() - Duration::from_secs(10),
+            // make this older to trigger immediate refresh
+            last_devices_refresh: Instant::now() - Duration::from_secs(10),
             pending_chat_message: None,
             chat_stream_rx: None,
             topology: None,

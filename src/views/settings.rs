@@ -20,6 +20,8 @@ pub enum SettingsField {
     MaxTokens,
     /// Temperature for chat responses.
     Temperature,
+    /// Devices refresh interval in seconds.
+    DevicesRefreshInterval,
 }
 
 impl App {
@@ -76,6 +78,12 @@ impl App {
             format!("{:.2}", self.temp_config.temperature)
         };
 
+        let devices_refresh_value = if is_editing && matches!(self.selected_field, SettingsField::DevicesRefreshInterval) {
+            format!("{}_", self.input_buffer)
+        } else {
+            self.temp_config.devices_refresh_interval.to_string()
+        };
+
         let mut settings_text = vec![
             Line::from(""),
             Line::from(vec![
@@ -96,6 +104,12 @@ impl App {
             Line::from(vec![
                 "  Temperature:     ".into(),
                 temperature_value.set_style(field_style(SettingsField::Temperature)),
+            ]),
+            Line::from(""),
+            Line::from(vec![
+                "  Devices Refresh: ".into(),
+                devices_refresh_value.set_style(field_style(SettingsField::DevicesRefreshInterval)),
+                " seconds".into(),
             ]),
             Line::from(""),
             Line::from(vec![
@@ -162,6 +176,7 @@ impl App {
             SettingsField::Port => SettingsField::Host,
             SettingsField::MaxTokens => SettingsField::Port,
             SettingsField::Temperature => SettingsField::MaxTokens,
+            SettingsField::DevicesRefreshInterval => SettingsField::Temperature,
         };
     }
 
@@ -170,7 +185,8 @@ impl App {
             SettingsField::Host => SettingsField::Port,
             SettingsField::Port => SettingsField::MaxTokens,
             SettingsField::MaxTokens => SettingsField::Temperature,
-            SettingsField::Temperature => SettingsField::Temperature,
+            SettingsField::Temperature => SettingsField::DevicesRefreshInterval,
+            SettingsField::DevicesRefreshInterval => SettingsField::DevicesRefreshInterval,
         };
     }
 
@@ -180,6 +196,7 @@ impl App {
             SettingsField::Port => self.temp_config.api_port.to_string(),
             SettingsField::MaxTokens => self.temp_config.max_tokens.to_string(),
             SettingsField::Temperature => format!("{:.2}", self.temp_config.temperature),
+            SettingsField::DevicesRefreshInterval => self.temp_config.devices_refresh_interval.to_string(),
         };
         self.status_message.clear();
     }
@@ -215,6 +232,15 @@ impl App {
                 }
                 _ => {
                     self.status_message = "Invalid temperature (must be 0.0-2.0)!".to_string();
+                }
+            },
+            SettingsField::DevicesRefreshInterval => match self.input_buffer.parse::<u64>() {
+                Ok(interval) if interval > 0 && interval <= 3600 => {
+                    self.temp_config.devices_refresh_interval = interval;
+                    self.status_message = "Devices refresh interval updated (press 's' to save)".to_string();
+                }
+                _ => {
+                    self.status_message = "Invalid interval (must be 1-3600 seconds)!".to_string();
                 }
             },
         }

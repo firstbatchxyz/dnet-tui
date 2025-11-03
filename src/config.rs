@@ -10,6 +10,8 @@ pub struct Config {
     pub max_tokens: u32,
     #[serde(default = "default_temperature")]
     pub temperature: f32,
+    #[serde(default = "default_devices_refresh_interval")]
+    pub devices_refresh_interval: u64,
 }
 
 #[inline(always)]
@@ -18,6 +20,9 @@ fn default_max_tokens() -> u32  { 2000 }
 #[inline(always)]
 #[rustfmt::skip]
 fn default_temperature() -> f32 { 0.7 }
+#[inline(always)]
+#[rustfmt::skip]
+fn default_devices_refresh_interval() -> u64 { 1 }
 
 impl Default for Config {
     fn default() -> Self {
@@ -26,6 +31,7 @@ impl Default for Config {
             api_port: 8080,
             max_tokens: default_max_tokens(),
             temperature: default_temperature(),
+            devices_refresh_interval: default_devices_refresh_interval(),
         }
     }
 }

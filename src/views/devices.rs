@@ -113,22 +113,17 @@ impl App {
         area: ratatui::layout::Rect,
         devices: &HashMap<String, DeviceProperties>,
     ) {
-        // Convert HashMap to Vec and sort by key for consistent display
+        // Convert HashMap to Vec and sort by local IP
         let mut devices_vec: Vec<(&String, &DeviceProperties)> = devices.iter().collect();
-        devices_vec.sort_by(|a, b| a.0.cmp(b.0));
+        devices_vec.sort_by(|a, b| {
+            format!("{}:{}", a.1.local_ip, a.1.server_port)
+                .cmp(&format!("{}:{}", b.1.local_ip, b.1.server_port))
+        });
 
         let items: Vec<ListItem> = devices_vec
             .iter()
             .map(|(_key, device)| {
-                // Build the device info line
-                let mut line_parts = vec![
-                    format!("{:<20}", device.instance),
-                    format!("{:<16}", device.local_ip),
-                    format!("HTTP:{:<6}", device.server_port),
-                    format!("gRPC:{:<6}", device.shard_port),
-                ];
-
-                // Add status indicators
+                // Build the device info as a simple list
                 let mut status_parts = Vec::new();
                 if device.is_manager {
                     status_parts.push("[MANAGER]");
@@ -136,11 +131,21 @@ impl App {
                 if device.is_busy {
                     status_parts.push("[BUSY]");
                 }
-                if !status_parts.is_empty() {
-                    line_parts.push(status_parts.join(" "));
-                }
 
-                let line = line_parts.join("  ");
+                let status_str = if !status_parts.is_empty() {
+                    format!(" {}", status_parts.join(" "))
+                } else {
+                    String::new()
+                };
+
+                let line = format!(
+                    "{:<64} {:<13} - HTTP:{:<7} gRPC:{:<7}{}",
+                    device.instance,
+                    device.local_ip,
+                    device.server_port,
+                    device.shard_port,
+                    status_str
+                );
 
                 // Style based on status
                 let style = if device.is_manager {
@@ -157,16 +162,10 @@ impl App {
             })
             .collect();
 
-        // Header line
-        let header = format!(
-            "{:<20}  {:<16}  {:<13}  {:<13}  {}",
-            "INSTANCE", "IP ADDRESS", "HTTP PORT", "gRPC PORT", "STATUS"
-        );
-
         let list = List::new(items)
             .block(
                 Block::bordered()
-                    .title(header)
+                    .title(format!("{} Devices", devices.len()))
                     .title_style(Style::default().add_modifier(Modifier::BOLD)),
             )
             .style(Style::default());
@@ -186,19 +185,29 @@ impl App {
 
     /// Handle async operations for devices state (called during tick).
     pub(crate) async fn tick_devices(&mut self, state: &DevicesState) {
-        if matches!(state, DevicesState::Loading) {
+        use std::time::Duration;
+
+        let refresh_interval = Duration::from_secs(self.config.devices_refresh_interval);
+        let should_refresh = self.last_devices_refresh.elapsed() >= refresh_interval;
+
+        // Refresh if loading or if refresh interval has elapsed
+        if matches!(state, DevicesState::Loading) || should_refresh {
             self.load_devices().await;
         }
     }
 
     /// Load devices asynchronously and update state.
     async fn load_devices(&mut self) {
+        use std::time::Instant;
+
         match DevicesState::fetch(&self.config.api_url()).await {
             Ok(devices) => {
                 self.state = AppState::Devices(DevicesState::Loaded(devices));
+                self.last_devices_refresh = Instant::now();
             }
             Err(err) => {
                 self.state = AppState::Devices(DevicesState::Error(err));
+                self.last_devices_refresh = Instant::now();
             }
         }
     }
