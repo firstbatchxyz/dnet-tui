@@ -20,7 +20,7 @@ pub const MENU_BANNER: [&str; 18] = [
     crate::constants::VERSION,
 ];
 
-/// Available models for loading
+/// Available models for loading.
 pub const AVAILABLE_MODELS: &[&str] = &[
     // qwen 4b
     "Qwen/Qwen3-4B-MLX-4bit",
@@ -33,9 +33,6 @@ pub const AVAILABLE_MODELS: &[&str] = &[
     "Qwen/Qwen3-32B-MLX-bf16",
     "Qwen/Qwen3-32B-MLX-8bit",
     "Qwen/Qwen3-32B-MLX-6bit",
-    // openai
-    "openai/gpt-oss-120b",
-    "openai/gpt-oss-20b",
     // nous
     "NousResearch/Hermes-4-70B",
     // llama 8b
@@ -44,6 +41,14 @@ pub const AVAILABLE_MODELS: &[&str] = &[
     // llama 70b
     "mlx-community/Meta-Llama-3.1-70B-4bit",
     "mlx-community/Meta-Llama-3.1-70B-8bit",
+    // gpt OSS 20b
+    "openai/gpt-oss-20b",
+    "mlx-community/gpt-oss-20b-MXFP4-Q4",
+    "mlx-community/gpt-oss-20b-MXFP4-Q8",
+    // gpt OSS 120b
+    "openai/gpt-oss-120b",
+    "mlx-community/gpt-oss-120b-MXFP4-Q4",
+    "mlx-community/gpt-oss-120b-MXFP4-Q8",
 ];
 
 /// Version from `Cargo.toml`.

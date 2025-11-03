@@ -709,14 +709,21 @@ fn get_model_layers(model: &str) -> u32 {
 
         "NousResearch/Hermes-4-70B" => 70,
 
-        "openai/gpt-oss-120b" => 120,
-        "openai/gpt-oss-20b" => 20,
-
         "mlx-community/Meta-Llama-3.1-8B-Instruct-4bit"
       | "mlx-community/Meta-Llama-3.1-8B-Instruct-8bit" => 32,
 
         "mlx-community/Meta-Llama-3.1-70B-4bit"
       | "mlx-community/Meta-Llama-3.1-70B-8bit" => 80,
+
+        // gpt OSS 20b
+        "openai/gpt-oss-20b"
+      | "mlx-community/gpt-oss-20b-MXFP4-Q4"
+      | "mlx-community/gpt-oss-20b-MXFP4-Q8" => 20,
+
+        // gpt OSS 120b
+        "openai/gpt-oss-120b"
+      | "mlx-community/gpt-oss-120b-MXFP4-Q4"
+      | "mlx-community/gpt-oss-120b-MXFP4-Q8" => 120,
 
         _ => 36, // default fallback FIXME: smelly
     }
