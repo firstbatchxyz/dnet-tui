@@ -261,10 +261,10 @@ impl App {
         match MenuItem::all()[self.selected_menu] {
             MenuItem::Chat => {
                 if let Some(model) = &self.topology.as_ref().and_then(|t| t.model.clone()) {
-                    self.state = AppState::Chat(crate::chat::ChatState::new(
-                        model.clone(),
-                        self.config.max_tokens,
-                    ));
+                    // update model and max tokens in active chat state
+                    self.chat.model = model.clone();
+                    self.chat.max_tokens = self.config.max_tokens;
+                    self.state = AppState::Chat(crate::chat::ChatState::Active);
                 } else {
                     // if topology not loaded, do nothing (item is disabled)
                 }

@@ -1,4 +1,4 @@
-use crate::chat::ChatState;
+use crate::chat::{ChatActiveState, ChatState};
 use crate::common::TopologyInfo;
 use crate::config::Config;
 use crate::developer::DeveloperState;
@@ -6,9 +6,9 @@ use crate::devices::DevicesState;
 use crate::model::ModelState;
 use crate::settings::SettingsField;
 use crate::topology::TopologyState;
+use color_eyre::eyre::Result;
 use crossterm::event::EventStream;
 use std::time::{Duration, Instant};
-use tokio::sync::mpsc;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum AppState {
@@ -20,6 +20,9 @@ pub enum AppState {
     Developer(DeveloperState),
     Chat(ChatState),
 }
+
+/// 60 FPS = 1000ms / 60 = 16.67ms per frame
+const FPS_RATE: Duration = Duration::from_millis(1000 / 60);
 
 #[derive(Debug)]
 pub struct App {
@@ -55,22 +58,26 @@ pub struct App {
     pub last_devices_refresh: Instant,
     /// Pending chat message to send
     pub pending_chat_message: Option<String>,
-    /// Chat message receiver for streaming responses
-    pub chat_stream_rx: Option<mpsc::UnboundedReceiver<String>>,
+    /// Active chat state, persistent across chat sessions.
+    pub chat: ChatActiveState,
     /// Current topology (if present).
     pub topology: Option<TopologyInfo>,
 }
 
 impl App {
     /// Construct a new instance of [`App`].
-    pub fn new() -> color_eyre::Result<Self> {
+    pub fn new() -> Result<Self> {
+        Self::new_with_state(AppState::Menu)
+    }
+
+    pub fn new_with_state(state: AppState) -> Result<Self> {
         let config = Config::load()?;
         Ok(Self {
             is_running: false,
             event_stream: EventStream::new(),
             temp_config: config.clone(),
             config,
-            state: AppState::Menu,
+            state,
             selected_menu: 0,
             selected_field: SettingsField::Host,
             selected_device: 0,
@@ -84,9 +91,98 @@ impl App {
             // make this older to trigger immediate refresh
             last_devices_refresh: Instant::now() - Duration::from_secs(10),
             pending_chat_message: None,
-            chat_stream_rx: None,
+            chat: ChatActiveState::new("N/A".into(), 2000),
             topology: None,
         })
+    }
+
+    /// Run the application's main loop.
+    pub async fn run(mut self, mut terminal: ratatui::DefaultTerminal) -> Result<()> {
+        self.is_running = true;
+
+        // create a ticker for animation updates
+        let mut interval = tokio::time::interval(FPS_RATE);
+
+        while self.is_running {
+            // draw first (to disguise async stuff in ticks)
+            terminal.draw(|frame| self.draw(frame))?;
+
+            // process ticks
+            match self.state.clone() {
+                AppState::Menu => {
+                    self.tick_menu().await;
+                }
+                AppState::Devices(devices_state) => {
+                    self.tick_devices(&devices_state).await;
+                }
+                AppState::Topology(topology_state) => {
+                    self.tick_topology(&topology_state).await;
+                }
+                AppState::Model(model_state) => {
+                    self.tick_model(&model_state).await;
+                }
+                AppState::Developer(developer_state) => {
+                    self.tick_developer(&developer_state).await;
+                }
+                AppState::Chat(chat_state) => {
+                    self.tick_chat(&chat_state).await;
+                }
+                _ => {
+                    // no async operations for Settings
+                }
+            }
+
+            // handle events with timeout to allow animation updates
+            tokio::select! {
+                _ = interval.tick() => {
+                    // will trigger a redraw for animation by looping
+                    continue;
+                }
+                result = self.handle_crossterm_events() => {
+                    result?;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Renders the user interface.
+    fn draw(&mut self, frame: &mut ratatui::Frame) {
+        match self.state.clone() {
+            AppState::Menu => self.draw_menu(frame),
+            AppState::Settings => self.draw_settings(frame),
+            AppState::Devices(state) => self.draw_devices(frame, &state),
+            AppState::Topology(state) => self.draw_topology(frame, &state),
+            AppState::Model(state) => self.draw_model(frame, &state),
+            AppState::Developer(state) => self.draw_developer(frame, &state),
+            AppState::Chat(state) => self.draw_chat(frame, &state),
+        }
+    }
+
+    /// Reads the crossterm events and updates the state of [`App`].
+    async fn handle_crossterm_events(&mut self) -> Result<()> {
+        use crossterm::event::{Event, KeyEventKind};
+        use futures::{FutureExt, StreamExt};
+
+        let event = self.event_stream.next().fuse().await;
+        match event {
+            Some(Ok(evt)) => match evt {
+                Event::Key(key) if key.kind == KeyEventKind::Press => match &self.state.clone() {
+                    AppState::Menu => self.handle_menu_input(key),
+                    AppState::Settings => self.handle_settings_input(key),
+                    AppState::Devices(state) => self.handle_devices_input(key, state),
+                    AppState::Topology(state) => self.handle_topology_input(key, state),
+                    AppState::Model(state) => self.handle_model_input(key, state),
+                    AppState::Developer(state) => self.handle_developer_input(key, state),
+                    AppState::Chat(state) => self.handle_chat_input(key, state),
+                },
+                Event::Mouse(_) => {} // TODO: do we want mouse events?
+                Event::Resize(_, _) => {}
+                _ => {}
+            },
+            _ => {}
+        }
+        Ok(())
     }
 
     /// Set running to false to quit the application.
