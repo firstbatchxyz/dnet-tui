@@ -145,15 +145,7 @@ pub fn parse_think_tags_to_lines(text: &str, is_generating: bool) -> Vec<Line> {
         lines.push(Line::raw(before_think));
     };
     if let Some(thinking) = thinking.clone() {
-        // add cursor if generating too
-        lines.push(if is_generating {
-            Line::from_iter(vec![
-                Span::styled(thinking, THINK_STYLE),
-                Span::styled("▌", CURSOR_STYLE),
-            ])
-        } else {
-            Line::styled(thinking, THINK_STYLE)
-        });
+        lines.push(Line::styled(thinking, THINK_STYLE));
     }
     if let Some(after_think) = after_think {
         if thinking.is_some() {
@@ -162,6 +154,13 @@ pub fn parse_think_tags_to_lines(text: &str, is_generating: bool) -> Vec<Line> {
             lines.push(Line::raw(""))
         }
         lines.push(Line::raw(after_think));
+    }
+
+    // if generating, add cursor to the last line
+    if is_generating {
+        lines.last_mut().map(|line| {
+            line.push_span(Span::styled("▌", CURSOR_STYLE));
+        });
     }
 
     lines
