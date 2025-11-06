@@ -1,14 +1,14 @@
 /// Chat interface.
-pub(crate) mod chat;
+pub mod chat;
 /// Developer tools and manual assignment.
-pub(crate) mod developer;
+pub mod developer;
 /// Device viewer (discovered devices).
-pub(crate) mod devices;
+pub mod devices;
 /// Menu interface.
-pub(crate) mod menu;
+pub mod menu;
 /// Loading and unloading models.
-pub(crate) mod model;
+pub mod model;
 /// View & edit settings.
-pub(crate) mod settings;
+pub mod settings;
 /// Topology viewer.
-pub(crate) mod topology;
+pub mod topology;

@@ -1,15 +1,4 @@
-/// The top-level application module.
-mod app;
-pub use app::{App, AppState};
-
-/// Views for each "screen".
-mod views;
-use views::*;
-
-mod common;
-mod config;
-mod constants;
-mod utils;
+use dnet_tui::App;
 
 #[tokio::main]
 async fn main() -> color_eyre::Result<()> {

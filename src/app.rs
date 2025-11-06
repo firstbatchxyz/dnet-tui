@@ -70,14 +70,17 @@ pub struct App {
 impl App {
     /// Construct a new instance of [`App`].
     pub fn new() -> Result<Self> {
+        Self::new_with_state(AppState::Menu)
+    }
+
+    pub fn new_with_state(state: AppState) -> Result<Self> {
         let config = Config::load()?;
         Ok(Self {
             is_running: false,
             event_stream: EventStream::new(),
             temp_config: config.clone(),
             config,
-            // state: AppState::Menu,
-            state: AppState::Chat(ChatState::new("erhan".to_string(), 1000)),
+            state,
             selected_menu: 0,
             selected_field: SettingsField::Host,
             selected_device: 0,

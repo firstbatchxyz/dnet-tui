@@ -1,18 +1,22 @@
 mod utils;
-use tui_input::backend::crossterm::EventHandler;
+pub use utils::ChatMessage;
 use utils::*;
+
+mod styles;
+use styles::*;
 
 use crate::AppState;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{
     Frame,
     layout::{Constraint, Layout, Rect},
-    style::{Color, Modifier, Style, Stylize},
+    style::{Color, Style, Stylize},
     text::{Line, Span},
     widgets::{Block, Borders, Paragraph, Wrap},
 };
-use std::collections::VecDeque;
+use std::{collections::VecDeque, u16};
 use tokio::sync::mpsc;
+use tui_input::backend::crossterm::EventHandler;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ChatState {
@@ -20,7 +24,8 @@ pub enum ChatState {
         messages: VecDeque<ChatMessage>,
         is_generating: bool,
         current_response: String,
-        scroll_offset: usize,
+        scroll_offset: u16,
+        max_scroll: u16,
         max_tokens: u32,
         model: String,
     },
@@ -29,71 +34,30 @@ pub enum ChatState {
 
 impl ChatState {
     pub fn new(model: String, max_tokens: u32) -> Self {
-        let mut messages = VecDeque::new();
-
-        // Add welcome message
-        messages.push_back(ChatMessage {
-            role: "system".to_string(),
-            content: "Welcome to dnet chat! Type your message and press Enter to send.".to_string(),
-            timestamp: chrono::Local::now().format("%H:%M").to_string(),
-        });
-
-        messages.push_back(ChatMessage::new_assistant(
-            "Hello! I'm your assistant. How can I help you today? Hello! I'm your assistant. How can I help you today?
-            Hello! I'm your assistant. How can I help you today?
-            Hello! I'm your assistant. How can I help you today?
-            Hello! I'm your assistant. How can I help you today?
-            Hello! I'm your assistant. How can I help you today?
-            Hello! I'm your assistant. How can I help you today?
-            Hello! I'm your assistant. How can I help you today?
-            Hello! I'm your assistant. How can I help you today?
-            Hello! I'm your assistant. How can I help you today?
-            Hello! I'm your assistant. How can I help you today?
-            Hello! I'm your assistant. How can I help you today?
-            Hello! I'm your assistant. How can I help you today?
-            Hello! I'm your assistant. How can I help you today?
-            Hello! I'm your assistant. How can I help you today?
-            Hello! I'm your assistant. How can I help you today?
-            Hello! I'm your assistant. How can I help you today?
-            Hello! I'm your assistant. How can I help you today?
-            Hello! I'm your assistant. How can I help you today?
-            Hello! I'm your assistant. How can I help you today?
-            Hello! I'm your assistant. How can I help you today?
-            Hello! I'm your assistant. How can I help you today?
-            Hello! I'm your assistant. How can I help you today?
-            Hello! I'm your assistant. How can I help you today?
-            Hello! I'm your assistant. How can I help you today?
-            Hello! I'm your assistant. How can I help you today?
-            Hello! I'm your assistant. How can I help you today?
-            Hello! I'm your assistant. How can I help you today?
-            Hello! I'm your assistant. How can I help you today?
-            Hello! I'm your assistant. How can I help you today?
-            Hello! I'm your assistant. How can I help you today?
-            Hello! I'm your assistant. How can I help you today?
-            Hello! I'm your assistant. How can I help you today?",
-        ));
-
-        ChatState::Active {
-            messages,
+        let mut state = ChatState::Active {
+            messages: VecDeque::new(),
             model,
             is_generating: false,
             current_response: String::new(),
             scroll_offset: 0,
+            max_scroll: 0,
             max_tokens,
+        };
+
+        // add welcome message
+        state.add_message(ChatMessage::new_system(
+            "Welcome to dnet chat! Type your message and press Enter to send.",
+        ));
+
+        state
+    }
+
+    pub fn add_message(&mut self, message: ChatMessage) {
+        if let ChatState::Active { messages, .. } = self {
+            messages.push_back(message);
         }
     }
 }
-
-/// [`Style`] for thinking text, dimmed & transparent-like.
-const THINK_STYLE: Style = Style::new()
-    .fg(Color::Rgb(255, 246, 229)) // #FFF6E5
-    .add_modifier(Modifier::DIM);
-const ASSISTANT_STYLE: Style = Style::new().fg(Color::Blue).add_modifier(Modifier::BOLD);
-const CURSOR_STYLE: Style = Style::new()
-    .fg(Color::Blue)
-    .add_modifier(Modifier::SLOW_BLINK);
-const USER_STYLE: Style = Style::new().fg(Color::Green).add_modifier(Modifier::BOLD);
-const TIMESTAMP_STYLE: Style = Style::new().fg(Color::DarkGray);
 
 impl crate::App {
     pub fn draw_chat(&mut self, frame: &mut Frame, state: &ChatState) {
@@ -185,7 +149,7 @@ impl crate::App {
         messages: &VecDeque<ChatMessage>,
         current_response: &str,
         is_generating: bool,
-        scroll_offset: usize,
+        scroll_offset: u16,
     ) {
         let mut lines: Vec<Line> = Vec::new();
         for msg in messages {
@@ -205,14 +169,8 @@ impl crate::App {
             // Add message content with word wrapping and think tag parsing
             if msg.role == "assistant" {
                 // for assistant messages, parse think tags for the entire content
-                let (before_think, thinking, after_think) = parse_think_tags(&msg.content);
-
-                // now we need to wrap these spans into lines
-                lines.push(Line::from(vec![
-                    Span::raw(before_think),
-                    Span::styled(thinking, THINK_STYLE),
-                    Span::raw(after_think),
-                ]));
+                let think_lines = parse_think_tags_to_lines(&msg.content);
+                lines.extend_from_slice(&think_lines);
             } else {
                 lines.push(Line::from(msg.content.clone()));
             }
@@ -224,33 +182,57 @@ impl crate::App {
         // add current response if generating (or has content)
         if is_generating || !current_response.is_empty() {
             lines.push(Line::from(vec![
-                Span::styled(
-                    format!("[{}] ", chrono::Local::now().format("%H:%M")),
-                    TIMESTAMP_STYLE,
-                ),
+                Span::styled(format!("[{}] ", ChatMessage::now()), TIMESTAMP_STYLE),
                 Span::styled("ASSISTANT", ASSISTANT_STYLE),
             ]));
 
-            // Parse current response for think tags
-            let (before_think, thinking, after_think) = parse_think_tags(current_response);
-            lines.push(Line::from(vec![
-                Span::raw(before_think),
-                Span::styled(thinking, THINK_STYLE),
-                Span::raw(after_think),
-            ]));
+            // parse current response for think tags
+            let think_lines = parse_think_tags_to_lines(&current_response);
+            lines.extend_from_slice(&think_lines);
 
-            // Add typing indicator if still generating
+            // add typing indicator if still generating
             if is_generating {
                 lines.push(Line::from("▌").style(CURSOR_STYLE));
             }
         }
 
-        let messages_widget = Paragraph::new(lines)
+        // create paragraph
+        let mut par = Paragraph::new(lines)
             .block(Block::default().borders(Borders::ALL).title("Conversation"))
-            .wrap(Wrap { trim: false })
-            .scroll((0, 0)); // TODO: add scroll offsetting
+            .wrap(Wrap { trim: false });
 
-        frame.render_widget(messages_widget, area);
+        // determine scroll
+        let (width, height) = (area.width, area.height as usize);
+        let num_lines = par.line_count(width);
+        let max_scroll = if num_lines > height {
+            num_lines - height
+        } else {
+            0
+        };
+
+        par = par.scroll((scroll_offset, 0));
+        frame.render_widget(par, area);
+
+        // FIXME: !!!
+        self.state = match self.state.clone() {
+            AppState::Chat(ChatState::Active {
+                messages,
+                is_generating,
+                current_response,
+                max_tokens,
+                model,
+                ..
+            }) => AppState::Chat(ChatState::Active {
+                messages,
+                is_generating,
+                current_response,
+                scroll_offset,
+                max_scroll: max_scroll as u16,
+                max_tokens,
+                model,
+            }),
+            other => other,
+        };
     }
 
     fn draw_input_area(&mut self, frame: &mut Frame, area: Rect, is_generating: bool) {
@@ -279,6 +261,7 @@ impl crate::App {
             scroll_offset,
             max_tokens,
             model,
+            max_scroll,
         } = state
         {
             let mut messages = messages.clone();
@@ -302,11 +285,7 @@ impl crate::App {
                         // Stop generation - TODO: would need to implement cancellation
                         // For now, just return to normal state
                         if !current_response.is_empty() {
-                            messages.push_back(ChatMessage {
-                                role: "assistant".to_string(),
-                                content: current_response.clone(),
-                                timestamp: chrono::Local::now().format("%H:%M").to_string(),
-                            });
+                            messages.push_back(ChatMessage::new_assistant(&current_response));
                         }
                         current_response.clear();
 
@@ -316,6 +295,7 @@ impl crate::App {
                             current_response,
                             scroll_offset,
                             max_tokens,
+                            max_scroll: *max_scroll,
                             model: model.clone(),
                         });
                         self.chat_stream_rx = None; // Clear the stream
@@ -329,48 +309,56 @@ impl crate::App {
                         self.state = AppState::Menu;
                         return; // early return to prevent state from being overwritten
                     }
-
+                    // scroll up (offset shrinks)
+                    (_, KeyCode::Up) => {
+                        if scroll_offset > 0 {
+                            scroll_offset -= 1;
+                        }
+                    }
+                    // scroll down (offset grows)
+                    (_, KeyCode::Down) => {
+                        if scroll_offset < *max_scroll {
+                            scroll_offset += 1;
+                        }
+                    }
                     (KeyModifiers::CONTROL, KeyCode::Char('l') | KeyCode::Char('L')) => {
                         // Clear chat
                         messages.clear();
-                        messages.push_back(ChatMessage {
-                            role: "system".to_string(),
-                            content: "Chat cleared. Start a new conversation!".to_string(),
-                            timestamp: chrono::Local::now().format("%H:%M").to_string(),
-                        });
+                        messages.push_back(ChatMessage::new_system(
+                            "Chat cleared. Start a new conversation!",
+                        ));
                         scroll_offset = 0;
                     }
 
-                    // (_, KeyCode::Enter) => {
-                    //     let input_buffer = self.chat_input.value().trim();
-                    //     if !input_buffer.is_empty() {
-                    //         let user_input = input_buffer.to_string();
-                    //         self.chat_input.reset();
+                    (_, KeyCode::Enter) => {
+                        let input_buffer = self.chat_input.value().trim();
+                        if !input_buffer.is_empty() {
+                            let user_input = input_buffer.to_string();
+                            self.chat_input.reset();
 
-                    //         // Add user message
-                    //         messages.push_back(ChatMessage {
-                    //             role: "user".to_string(),
-                    //             content: user_input.clone(),
-                    //             timestamp: chrono::Local::now().format("%H:%M").to_string(),
-                    //         });
+                            // add user message
+                            messages.push_back(ChatMessage {
+                                role: "user".to_string(),
+                                content: user_input.clone(),
+                                timestamp: chrono::Local::now().format("%H:%M").to_string(),
+                            });
 
-                    //         // Auto-scroll to bottom
-                    //         scroll_offset = messages.len().saturating_sub(10);
+                            // set generating state
+                            self.state = AppState::Chat(ChatState::Active {
+                                messages: messages.clone(),
+                                is_generating: true,
+                                current_response: String::new(),
+                                scroll_offset,
+                                max_tokens,
+                                max_scroll: *max_scroll,
+                                model: model.clone(),
+                            });
 
-                    //         // Set generating state
-                    //         self.state = AppState::Chat(ChatState::Active {
-                    //             messages: messages.clone(),
-                    //             is_generating: true,
-                    //             current_response: String::new(),
-                    //             scroll_offset,
-                    //             max_tokens,
-                    //             model: model.clone(),
-                    //         });
+                            // store the message for API call
+                            self.pending_chat_message = Some(user_input);
+                        }
+                    }
 
-                    //         // Store the message for API call
-                    //         self.pending_chat_message = Some(user_input);
-                    //     }
-                    // }
                     (_, _) => {
                         let event = crossterm::event::Event::Key(key);
                         self.chat_input.handle_event(&event);
@@ -384,6 +372,7 @@ impl crate::App {
                         current_response,
                         scroll_offset,
                         max_tokens,
+                        max_scroll: *max_scroll,
                         model: model.clone(),
                     });
                 }
@@ -580,6 +569,7 @@ impl crate::App {
                         messages,
                         is_generating,
                         current_response,
+                        max_scroll,
                         scroll_offset,
                         ..
                     }) = &mut self.state
@@ -595,8 +585,6 @@ impl crate::App {
                                 current_response.clear();
                             }
                             *is_generating = false;
-                            // Reset scroll to allow user to scroll freely after generation
-                            *scroll_offset = 0;
                             should_clear_rx = true;
                             break;
                         } else if chunk.starts_with("ERROR:") {
@@ -606,9 +594,9 @@ impl crate::App {
                         } else {
                             // Append chunk to current response
                             current_response.push_str(&chunk);
-                            // Auto-scroll during generation to follow the new content
+                            // TODO: Auto-scroll during generation to follow the new content
                             // This ensures the user sees the latest tokens being generated
-                            *scroll_offset = usize::MAX; // Will be clamped in draw_messages
+                            *scroll_offset = *max_scroll;
                         }
                     }
                 }

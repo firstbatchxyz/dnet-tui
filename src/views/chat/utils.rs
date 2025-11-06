@@ -1,3 +1,4 @@
+use ratatui::text::Line;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize)]
@@ -17,8 +18,9 @@ pub struct ChatMessage {
 }
 
 impl ChatMessage {
+    /// Returns the current local time formatted as "HH:MM".
     #[inline]
-    fn now() -> String {
+    pub fn now() -> String {
         chrono::Local::now().format("%H:%M").to_string()
     }
 
@@ -33,6 +35,14 @@ impl ChatMessage {
     pub fn new_assistant(content: &str) -> Self {
         ChatMessage {
             role: "assistant".to_string(),
+            content: content.to_string(),
+            timestamp: Self::now(),
+        }
+    }
+
+    pub fn new_system(content: &str) -> Self {
+        ChatMessage {
+            role: "system".to_string(),
             content: content.to_string(),
             timestamp: Self::now(),
         }
@@ -81,73 +91,70 @@ pub struct StreamDelta {
 
 /// Helper function to parse text with `<think>` tags,
 /// returning a triple of `(before_think, thinking, after_think)`.
-pub fn parse_think_tags(text: &str) -> (String, String, String) {
-    let mut before_think = String::new();
-    let mut thinking = String::new();
-    let mut after_think = String::new();
+pub fn parse_think_tags(text: &str) -> (Option<String>, Option<String>, Option<String>) {
+    let mut before_think = None;
+    let mut thinking = None;
+    let mut after_think = None;
     let mut remaining = text;
     if let Some(think_start) = remaining.find("<think>") {
         // get text before <think>
         if think_start > 0 {
             let before = &remaining[..think_start];
             if !before.is_empty() {
-                before_think = before.to_string();
+                before_think = Some(before.to_string());
             }
         }
 
         // find the closing tag
-        remaining = &remaining[think_start + 7..]; // Skip "<think>"
+        remaining = &remaining[think_start + 7..]; // skip "<think>"
         if let Some(think_end) = remaining.find("</think>") {
-            // Get the content between tags
+            // get the content between tags
             let think_content = &remaining[..think_end];
             if !think_content.is_empty() {
-                thinking = think_content.to_string();
-                // Use a lighter gray with dim modifier to simulate transparency
-                // spans.push(Span::styled(
-                //     think_content.to_string(),
-                //     Style::default()
-                //         .fg(Color::Rgb(255, 246, 229)) // #FFF6E5
-                //         .add_modifier(Modifier::DIM), // Simulates transparency
-                // ));
+                thinking = Some(think_content.to_string());
             }
 
-            // Add the "--end thinking--" marker
-            // spans.push(Span::styled(
-            //     "\n\n--end thinking--\n\n".to_string(),
-            //     Style::default()
-            //         .fg(Color::Yellow)
-            //         .add_modifier(Modifier::DIM | Modifier::ITALIC),
-            // ));
-
-            remaining = &remaining[think_end + 8..]; // Skip "</think>"
+            remaining = &remaining[think_end + 8..]; // skip "</think>"
             if !remaining.is_empty() {
-                after_think = remaining.to_string();
+                after_think = Some(remaining.to_string());
             }
         } else {
-            // No closing tag found, treat rest as thinking text
+            // no closing tag found, treat rest as thinking text
             if !remaining.is_empty() {
-                after_think = remaining.to_string();
-                // spans.push(Span::styled(
-                //     remaining.to_string(),
-                //     Style::default()
-                //         .fg(Color::Rgb(255, 246, 229))
-                //         .add_modifier(Modifier::DIM),
-                // ));
+                thinking = Some(remaining.to_string());
             }
         }
     } else {
-        // No more <think> tags, add the rest as normal text
+        // no <think> tag found, entire text is after_think
         if !remaining.is_empty() {
-            after_think = remaining.to_string();
+            after_think = Some(remaining.to_string());
         }
     }
 
-    // If no spans were created, return the original text
-    // if spans.is_empty() {
-    //     spans.push(Span::raw(text.to_string()));
-    // }
-
     (before_think, thinking, after_think)
+}
+
+pub fn parse_think_tags_to_lines(text: &str) -> Vec<Line> {
+    use super::THINK_STYLE;
+
+    let (before_think, thinking, after_think) = parse_think_tags(text);
+    let mut lines = vec![];
+    if let Some(before_think) = before_think {
+        lines.push(Line::raw(before_think));
+    };
+    if let Some(thinking) = thinking.clone() {
+        lines.push(Line::styled(thinking, THINK_STYLE));
+    }
+    if let Some(after_think) = after_think {
+        if thinking.is_some() {
+            lines.push(Line::raw(""));
+            lines.push(Line::styled("---end thinking---", THINK_STYLE));
+            lines.push(Line::raw(""))
+        }
+        lines.push(Line::raw(after_think));
+    }
+
+    lines
 }
 
 #[cfg(test)]
@@ -158,20 +165,20 @@ mod tests {
     fn test_parse_think_tags() {
         let input = "This is a test. <think>Thinking...</think> This is after.";
         let (before, thinking, after) = parse_think_tags(input);
-        assert_eq!(before, "This is a test. ");
-        assert_eq!(thinking, "Thinking...");
-        assert_eq!(after, " This is after.");
+        assert_eq!(before.unwrap(), "This is a test. ");
+        assert_eq!(thinking.unwrap(), "Thinking...");
+        assert_eq!(after.unwrap(), " This is after.");
 
         let input_no_think = "This is a test with no think tags.";
         let (before, thinking, after) = parse_think_tags(input_no_think);
-        assert_eq!(before, "");
-        assert_eq!(thinking, "");
-        assert_eq!(after, "This is a test with no think tags.");
+        assert_eq!(before, None);
+        assert_eq!(thinking, None);
+        assert_eq!(after.unwrap(), "This is a test with no think tags.");
 
         let input_unclosed = "Start <think>Unclosed thinking...";
         let (before, thinking, after) = parse_think_tags(input_unclosed);
-        assert_eq!(before, "Start ");
-        assert_eq!(thinking, "");
-        assert_eq!(after, "Unclosed thinking...");
+        assert_eq!(before.unwrap(), "Start ");
+        assert_eq!(thinking, None);
+        assert_eq!(after.unwrap(), "Unclosed thinking...");
     }
 }
