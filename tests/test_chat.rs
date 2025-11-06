@@ -1,18 +1,20 @@
+use dnet_tui::chat::ChatActiveState;
 use dnet_tui::views::chat::{ChatMessage, ChatState};
 use dnet_tui::{App, AppState};
 
-// cargo test --package dnet-tui --test test_chat -- test_chat_screen --exact --nocapture --ignored
+// cargo test --package dnet-tui --test test_chat -- test_chat_screen --exact --ignored
 #[tokio::test]
 #[ignore = "run manually"]
 async fn test_chat_screen() -> color_eyre::Result<()> {
     color_eyre::install()?;
     let terminal = ratatui::init();
-    let mut state = ChatState::new("sample-model".into(), 1000);
-    state.add_message(ChatMessage::new_user("How do you prepare a Menemen?"));
-    state.add_message(ChatMessage::new_assistant(r#"
-Menemen - one of the classics of Turkish breakfasts - is a delicious, comforting dish made mainly with eggs, tomatoes, peppers, and olive oil (or butter). Here's a traditional way to prepare it, plus a few regional and personal variations.
+    let mut chat = ChatActiveState::new("sample-model".into(), 1000);
+    chat.add_message(ChatMessage::new_user("How do you prepare a Menemen?"));
+    chat.add_message(ChatMessage::new_assistant(r#"
+Menemen - one of the classics of Turkish breakfasts - is a delicious, comforting dish made mainly with eggs, tomatoes, peppers, and olive oil (or butter).
+Here's a traditional way to prepare it, plus a few regional and personal variations.
 
-🇹🇷 Traditional Menemen Recipe
+## Traditional Menemen Recipe
 
 Ingredients (for 2-3 people):
 	•	3 tablespoons olive oil or 1 tablespoon butter (or a mix of both)
@@ -37,14 +39,16 @@ Cook gently, stirring occasionally, until the eggs reach your desired consistenc
 	5.	Serve immediately:
 Serve hot, straight from the pan, with plenty of fresh bread (preferably simit, pide, or village bread) for dipping.
 
-🧀 Optional Add-Ins (Regional & Personal Twists)
+## Optional Add-Ins (Regional & Personal Twists)
 	•	White cheese or feta: crumble in just before the eggs set for a creamy, salty touch.
 	•	Sucuk (Turkish sausage): fry slices before adding peppers for a heartier version.
 	•	Onion: a divisive addition! Some regions (especially Aegean) include finely chopped onions sautéed first; others insist real Menemen never has onion.
 
 Would you like me to show a one-pan minimalistic "village-style" version (just eggs, tomatoes, and olive oil) or a restaurant-style version with cheese and sucuk next?
 "#));
-    let app = App::new_with_state(AppState::Chat(state))?;
+
+    let mut app = App::new_with_state(AppState::Chat(ChatState::Active))?;
+    app.chat = chat;
     let result = app.run(terminal).await;
     ratatui::restore();
     result

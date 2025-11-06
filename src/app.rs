@@ -1,4 +1,4 @@
-use crate::chat::ChatState;
+use crate::chat::{ChatActiveState, ChatState};
 use crate::common::TopologyInfo;
 use crate::config::Config;
 use crate::developer::DeveloperState;
@@ -9,7 +9,6 @@ use crate::topology::TopologyState;
 use color_eyre::eyre::Result;
 use crossterm::event::EventStream;
 use std::time::{Duration, Instant};
-use tokio::sync::mpsc;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum AppState {
@@ -59,10 +58,8 @@ pub struct App {
     pub last_devices_refresh: Instant,
     /// Pending chat message to send
     pub pending_chat_message: Option<String>,
-    /// Chat message receiver for streaming responses
-    pub chat_stream_rx: Option<mpsc::UnboundedReceiver<String>>,
-    /// Chat input area
-    pub chat_input: tui_input::Input,
+    /// Active chat state, persistent across chat sessions.
+    pub chat: ChatActiveState,
     /// Current topology (if present).
     pub topology: Option<TopologyInfo>,
 }
@@ -94,8 +91,7 @@ impl App {
             // make this older to trigger immediate refresh
             last_devices_refresh: Instant::now() - Duration::from_secs(10),
             pending_chat_message: None,
-            chat_stream_rx: None,
-            chat_input: tui_input::Input::default(),
+            chat: ChatActiveState::new("N/A".into(), 2000),
             topology: None,
         })
     }
