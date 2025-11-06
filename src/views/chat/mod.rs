@@ -161,7 +161,7 @@ impl crate::App {
             // Add message content with word wrapping and think tag parsing
             if msg.role == "assistant" {
                 // for assistant messages, parse think tags for the entire content
-                let think_lines = parse_think_tags_to_lines(&msg.content);
+                let think_lines = parse_think_tags_to_lines(&msg.content, false);
                 lines.extend_from_slice(&think_lines);
             } else {
                 lines.push(Line::from(msg.content.clone()));
@@ -179,13 +179,8 @@ impl crate::App {
             ]));
 
             // parse current response for think tags
-            let think_lines = parse_think_tags_to_lines(&self.chat.current_response);
+            let think_lines = parse_think_tags_to_lines(&self.chat.current_response, true);
             lines.extend_from_slice(&think_lines);
-
-            // add typing indicator if still generating
-            if self.chat.is_generating {
-                lines.push(Line::from("▌").style(CURSOR_STYLE));
-            }
         }
 
         // create paragraph

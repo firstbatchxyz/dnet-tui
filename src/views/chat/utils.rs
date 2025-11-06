@@ -1,5 +1,7 @@
-use ratatui::text::Line;
+use ratatui::text::{Line, Span};
 use serde::{Deserialize, Serialize};
+
+use crate::chat::styles::CURSOR_STYLE;
 
 #[derive(Debug, Serialize)]
 pub struct ChatRequest {
@@ -134,7 +136,7 @@ pub fn parse_think_tags(text: &str) -> (Option<String>, Option<String>, Option<S
     (before_think, thinking, after_think)
 }
 
-pub fn parse_think_tags_to_lines(text: &str) -> Vec<Line> {
+pub fn parse_think_tags_to_lines(text: &str, is_generating: bool) -> Vec<Line> {
     use super::THINK_STYLE;
 
     let (before_think, thinking, after_think) = parse_think_tags(text);
@@ -143,7 +145,15 @@ pub fn parse_think_tags_to_lines(text: &str) -> Vec<Line> {
         lines.push(Line::raw(before_think));
     };
     if let Some(thinking) = thinking.clone() {
-        lines.push(Line::styled(thinking, THINK_STYLE));
+        // add cursor if generating too
+        lines.push(if is_generating {
+            Line::from_iter(vec![
+                Span::styled(thinking, THINK_STYLE),
+                Span::styled("▌", CURSOR_STYLE),
+            ])
+        } else {
+            Line::styled(thinking, THINK_STYLE)
+        });
     }
     if let Some(after_think) = after_think {
         if thinking.is_some() {
