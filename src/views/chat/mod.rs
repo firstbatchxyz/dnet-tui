@@ -12,7 +12,7 @@ use ratatui::{
     layout::{Constraint, Layout, Rect},
     style::{Color, Style, Stylize},
     text::{Line, Span},
-    widgets::{Block, Borders, Paragraph, Wrap},
+    widgets::{Block, Borders, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState, Wrap},
 };
 use std::{collections::VecDeque, u16};
 use tokio::sync::mpsc;
@@ -31,13 +31,12 @@ pub struct ChatActiveState {
     /// as new tokens are arriving. If the user scrolls manually while
     /// generating, this is set to false.
     pub scroll_locked: bool,
-    pub max_tokens: u32,
-
-    pub model: String,
+    // pub model: String,
     /// Chat message receiver for streaming responses
     pub stream_rx: Option<mpsc::UnboundedReceiver<String>>,
     /// Chat input area
     pub input: tui_input::Input,
+    pub scroll_bar: ScrollbarState,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -47,16 +46,15 @@ pub enum ChatState {
 }
 
 impl ChatActiveState {
-    pub fn new(model: String, max_tokens: u32) -> Self {
+    pub fn new() -> Self {
         let mut state = ChatActiveState {
             messages: VecDeque::new(),
-            model,
             is_generating: false,
             current_response: String::new(),
             scroll_cur: 0,
             scroll_max: 0,
             scroll_locked: false,
-            max_tokens,
+            scroll_bar: ScrollbarState::default(),
             stream_rx: None,
             input: tui_input::Input::default(),
         };
@@ -90,7 +88,11 @@ impl crate::App {
         let title = match state {
             ChatState::Active => Line::from(format!(
                 "Chatting with {} (max tokens: {})",
-                self.chat.model, self.chat.max_tokens
+                self.topology
+                    .as_ref()
+                    .and_then(|t| t.model.clone())
+                    .unwrap_or_default(),
+                self.config.max_tokens
             ))
             .bold()
             .cyan()
@@ -203,6 +205,20 @@ impl crate::App {
         self.chat.scroll_cur = self.chat.scroll_cur.min(self.chat.scroll_max);
         par = par.scroll((self.chat.scroll_cur, 0));
         frame.render_widget(par, area);
+
+        // update scrollbar
+        self.chat.scroll_bar = self
+            .chat
+            .scroll_bar
+            .content_length(self.chat.scroll_max as usize)
+            .position(self.chat.scroll_cur as usize);
+        frame.render_stateful_widget(
+            Scrollbar::new(ScrollbarOrientation::VerticalRight)
+                .begin_symbol(Some("↑"))
+                .end_symbol(Some("↓")),
+            area,
+            &mut self.chat.scroll_bar,
+        );
     }
 
     fn draw_input_area(&mut self, frame: &mut Frame, area: Rect, is_generating: bool) {
@@ -474,11 +490,20 @@ impl crate::App {
         // Handle pending chat message
         if let Some(_message) = self.pending_chat_message.take() {
             if let ChatState::Active = state {
+                let Some(model) = self.topology.as_ref().and_then(|t| t.model.clone()) else {
+                    self.state = AppState::Chat(ChatState::Error(
+                        // we dont expect to get there at all without a model,
+                        // but it still shall be handled
+                        "No model configured in topology.".to_string(),
+                    ));
+                    return;
+                };
+
                 match ChatState::send_message(
                     &self.config.api_url(),
                     &self.chat.messages,
-                    &self.chat.model,
-                    self.chat.max_tokens,
+                    &model,
+                    self.config.max_tokens,
                     self.config.temperature,
                 )
                 .await

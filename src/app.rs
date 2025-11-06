@@ -91,7 +91,7 @@ impl App {
             // make this older to trigger immediate refresh
             last_devices_refresh: Instant::now() - Duration::from_secs(10),
             pending_chat_message: None,
-            chat: ChatActiveState::new("N/A".into(), 2000),
+            chat: ChatActiveState::new(),
             topology: None,
         })
     }

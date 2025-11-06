@@ -8,7 +8,7 @@ use dnet_tui::{App, AppState};
 async fn test_chat_screen() -> color_eyre::Result<()> {
     color_eyre::install()?;
     let terminal = ratatui::init();
-    let mut chat = ChatActiveState::new("sample-model".into(), 1000);
+    let mut chat = ChatActiveState::new();
     chat.add_message(ChatMessage::new_user("How do you prepare a Menemen?"));
     chat.add_message(ChatMessage::new_assistant(r#"
 Menemen - one of the classics of Turkish breakfasts - is a delicious, comforting dish made mainly with eggs, tomatoes, peppers, and olive oil (or butter).
