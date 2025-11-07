@@ -712,8 +712,8 @@ fn get_model_layers(model: &str) -> u32 {
         "mlx-community/Meta-Llama-3.1-8B-Instruct-4bit"
       | "mlx-community/Meta-Llama-3.1-8B-Instruct-8bit" => 32,
 
-        "mlx-community/Meta-Llama-3.1-70B-4bit"
-      | "mlx-community/Meta-Llama-3.1-70B-8bit" => 80,
+        "mlx-community/Meta-Llama-3.1-70B-Instruct-4bit"
+      | "mlx-community/Meta-Llama-3.1-70B-Instruct-8bit" => 80,
 
         // gpt OSS 20b
         "openai/gpt-oss-20b"

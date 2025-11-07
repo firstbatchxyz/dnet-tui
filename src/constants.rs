@@ -39,8 +39,8 @@ pub const AVAILABLE_MODELS: &[&str] = &[
     "mlx-community/Meta-Llama-3.1-8B-Instruct-4bit",
     "mlx-community/Meta-Llama-3.1-8B-Instruct-8bit",
     // llama 70b
-    "mlx-community/Meta-Llama-3.1-70B-4bit",
-    "mlx-community/Meta-Llama-3.1-70B-8bit",
+    "mlx-community/Meta-Llama-3.1-70B-Instruct-4bit",
+    "mlx-community/Meta-Llama-3.1-70B-Instruct-8bit",
     // gpt OSS 20b
     "openai/gpt-oss-20b",
     "mlx-community/gpt-oss-20b-MXFP4-Q4",
