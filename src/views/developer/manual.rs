@@ -1,8 +1,7 @@
 use super::DeveloperState;
 use crate::AppState;
-use crate::common::{
-    AssignmentInfo, DeviceProperties, DevicesResponse, ShardHealthResponse, TopologyInfo,
-};
+use crate::common::{AssignmentInfo, DeviceProperties, DevicesResponse, ShardHealthResponse};
+use crate::config::{Config, KVBits};
 use crate::constants::AVAILABLE_MODELS;
 use color_eyre::eyre::Context;
 use crossterm::event::{KeyCode, KeyEvent};
@@ -623,11 +622,21 @@ impl ManualAssignmentState {
     }
 
     pub async fn submit_manual_topology(
-        api_url: &str,
+        config: &Config,
         model: &str,
         shards: &[ShardInfo],
         assignments: &HashMap<String, Vec<u32>>,
     ) -> color_eyre::Result<()> {
+        #[derive(Debug, Serialize, Deserialize)]
+        struct PrepareManualTopologyRequest {
+            model: String,
+            devices: Vec<DeviceProperties>,
+            assignments: Vec<AssignmentInfo>,
+            num_layers: u32,
+            kv_bits: KVBits,
+            seq_len: u32,
+            max_batch_size: u8,
+        }
         let num_layers = get_model_layers(model);
 
         // Determine next instances automatically
@@ -666,14 +675,17 @@ impl ManualAssignmentState {
             })
             .collect();
 
-        let request = TopologyInfo {
-            model: Some(model.to_string()),
+        let request = PrepareManualTopologyRequest {
+            model: model.to_string(),
             devices,
             assignments: assignment_infos,
             num_layers,
+            kv_bits: config.kv_bits,
+            seq_len: config.seq_len,
+            max_batch_size: config.max_batch_exp,
         };
 
-        let url = format!("{}/v1/prepare_topology_manual", api_url);
+        let url = format!("{}/v1/prepare_topology_manual", config.api_url());
         let client = reqwest::Client::new();
         let response = client.post(&url).json(&request).send().await?;
 
@@ -762,7 +774,7 @@ impl crate::App {
             } => {
                 let model_name = model.clone();
                 match ManualAssignmentState::submit_manual_topology(
-                    &self.config.api_url(),
+                    &self.config,
                     &model,
                     &shards,
                     &assignments,

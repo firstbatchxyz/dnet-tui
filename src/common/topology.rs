@@ -1,3 +1,5 @@
+use crate::config::KVBits;
+
 use super::DeviceProperties;
 use serde::{Deserialize, Serialize};
 
@@ -19,6 +21,7 @@ pub struct TopologyInfo {
     pub assignments: Vec<AssignmentInfo>,
     // can be anything
     // pub solution: Option<serde_json::Value>,
+    pub kv_bits: KVBits,
 }
 
 impl TopologyInfo {

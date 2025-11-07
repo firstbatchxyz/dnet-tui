@@ -48,6 +48,8 @@ pub struct App {
     pub developer_menu_index: usize,
     /// Input buffer for editing.
     pub input_buffer: String,
+    /// Whether we're currently editing a settings field.
+    pub is_editing_setting: bool,
     /// Status message.
     pub status_message: String,
     /// Animation start time for sliding text.
@@ -84,6 +86,7 @@ impl App {
             selected_model: 0,
             developer_menu_index: 0,
             input_buffer: String::new(),
+            is_editing_setting: false,
             status_message: String::new(),
             animation_start: Instant::now(),
             // make this older to trigger immediate check

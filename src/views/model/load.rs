@@ -1,4 +1,5 @@
 use crate::common::TopologyInfo;
+use crate::config::{Config, KVBits};
 use crate::constants::AVAILABLE_MODELS;
 use crate::{App, AppState};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
@@ -50,17 +51,26 @@ pub struct LoadModelResponse {
 /// This corresponds to the body of the `/v1/prepare_topology` API request,
 /// but is named `LoadModelRequest` here for clarity & consistency with the menu items.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct LoadModelRequest {
+struct PrepareTopologyRequest {
     pub model: String,
+    kv_bits: KVBits,
+    seq_len: u32,
+    max_batch_exp: u8,
 }
 
 impl LoadModelState {
     /// Prepare topology by calling the API
-    pub async fn prepare_topology(api_url: &str, model: &str) -> color_eyre::Result<TopologyInfo> {
-        let url = format!("{}/v1/prepare_topology", api_url);
+    pub async fn prepare_topology(
+        config: &Config,
+        model: &str,
+    ) -> color_eyre::Result<TopologyInfo> {
+        let url = format!("{}/v1/prepare_topology", config.api_url());
         let client = reqwest::Client::new();
-        let request = LoadModelRequest {
+        let request = PrepareTopologyRequest {
             model: model.to_string(),
+            kv_bits: config.kv_bits,
+            seq_len: config.seq_len,
+            max_batch_exp: config.max_batch_exp,
         };
 
         let response = client.post(&url).json(&request).send().await?;
@@ -308,7 +318,7 @@ impl App {
     pub(super) async fn tick_load_model(&mut self, state: &LoadModelState) {
         match state {
             LoadModelState::PreparingTopology(model) => {
-                match LoadModelState::prepare_topology(&self.config.api_url(), model).await {
+                match LoadModelState::prepare_topology(&self.config, model).await {
                     Ok(topology) => {
                         // move to loading model state and trigger load
                         self.state = AppState::Model(super::ModelState::Load(

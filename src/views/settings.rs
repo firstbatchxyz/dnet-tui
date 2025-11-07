@@ -9,6 +9,8 @@ use ratatui::{
     widgets::{Block, Paragraph},
 };
 
+// TODO: sloppy code here, will fix & shall do better styled error messages
+
 /// Possible settings fields.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum SettingsField {
@@ -22,6 +24,12 @@ pub enum SettingsField {
     Temperature,
     /// Devices refresh interval in seconds.
     DevicesRefreshInterval,
+    /// Quantization level.
+    KVBits,
+    /// Sequence length to optimize for.
+    SequenceLength,
+    /// Max batch size as power of 2 exponent.
+    MaxBatchExp,
 }
 
 impl App {
@@ -41,8 +49,6 @@ impl App {
         frame.render_widget(Paragraph::new(title), title_area);
 
         // Settings fields
-        let is_editing = !self.input_buffer.is_empty();
-
         let field_style = |field: SettingsField| {
             if matches!(self.selected_field, f if f == field) {
                 Style::default()
@@ -54,34 +60,64 @@ impl App {
         };
 
         // Show input_buffer if editing, otherwise show temp_config value
-        let host_value = if is_editing && matches!(self.selected_field, SettingsField::Host) {
-            format!("{}_", self.input_buffer)
-        } else {
-            self.temp_config.api_host.clone()
-        };
+        let host_value =
+            if self.is_editing_setting && matches!(self.selected_field, SettingsField::Host) {
+                format!("{}_", self.input_buffer)
+            } else {
+                self.temp_config.api_host.clone()
+            };
 
-        let port_value = if is_editing && matches!(self.selected_field, SettingsField::Port) {
-            format!("{}_", self.input_buffer)
-        } else {
-            self.temp_config.api_port.to_string()
-        };
+        let port_value =
+            if self.is_editing_setting && matches!(self.selected_field, SettingsField::Port) {
+                format!("{}_", self.input_buffer)
+            } else {
+                self.temp_config.api_port.to_string()
+            };
 
-        let max_tokens_value = if is_editing && matches!(self.selected_field, SettingsField::MaxTokens) {
-            format!("{}_", self.input_buffer)
-        } else {
-            self.temp_config.max_tokens.to_string()
-        };
+        let max_tokens_value =
+            if self.is_editing_setting && matches!(self.selected_field, SettingsField::MaxTokens) {
+                format!("{}_", self.input_buffer)
+            } else {
+                self.temp_config.max_tokens.to_string()
+            };
 
-        let temperature_value = if is_editing && matches!(self.selected_field, SettingsField::Temperature) {
+        let temperature_value = if self.is_editing_setting
+            && matches!(self.selected_field, SettingsField::Temperature)
+        {
             format!("{}_", self.input_buffer)
         } else {
             format!("{:.2}", self.temp_config.temperature)
         };
 
-        let devices_refresh_value = if is_editing && matches!(self.selected_field, SettingsField::DevicesRefreshInterval) {
+        let devices_refresh_value = if self.is_editing_setting
+            && matches!(self.selected_field, SettingsField::DevicesRefreshInterval)
+        {
             format!("{}_", self.input_buffer)
         } else {
             self.temp_config.devices_refresh_interval.to_string()
+        };
+
+        let kv_bits_value =
+            if self.is_editing_setting && matches!(self.selected_field, SettingsField::KVBits) {
+                format!("{}_", self.input_buffer)
+            } else {
+                self.temp_config.kv_bits.to_string()
+            };
+
+        let max_batch_exp_value = if self.is_editing_setting
+            && matches!(self.selected_field, SettingsField::MaxBatchExp)
+        {
+            format!("{}_", self.input_buffer)
+        } else {
+            self.temp_config.max_batch_exp.to_string()
+        };
+
+        let sequence_length_value = if self.is_editing_setting
+            && matches!(self.selected_field, SettingsField::SequenceLength)
+        {
+            format!("{}_", self.input_buffer)
+        } else {
+            self.temp_config.seq_len.to_string()
         };
 
         let mut settings_text = vec![
@@ -113,7 +149,23 @@ impl App {
             ]),
             Line::from(""),
             Line::from(vec![
-                "  Current config: ".dim(),
+                "  KV Bits:         ".into(),
+                kv_bits_value.set_style(field_style(SettingsField::KVBits)),
+            ]),
+            Line::from(""),
+            Line::from(vec![
+                "  Max Batch Exp:   ".into(),
+                max_batch_exp_value.set_style(field_style(SettingsField::MaxBatchExp)),
+            ]),
+            Line::from(""),
+            Line::from(vec![
+                "  Sequence Length: ".into(),
+                sequence_length_value.set_style(field_style(SettingsField::SequenceLength)),
+            ]),
+            // config
+            Line::from(""),
+            Line::from(vec![
+                "  Current config:  ".dim(),
                 Config::current_location().dim(),
             ]),
         ];
@@ -136,11 +188,12 @@ impl App {
     }
 
     pub fn handle_settings_input(&mut self, key: KeyEvent) {
-        // If we're currently editing (input_buffer is not empty)
-        if !self.input_buffer.is_empty() {
+        // If we're currently editing
+        if self.is_editing_setting {
             match key.code {
                 KeyCode::Enter => self.apply_edit(),
                 KeyCode::Esc => {
+                    self.is_editing_setting = false;
                     self.input_buffer.clear();
                     self.status_message.clear();
                 }
@@ -177,6 +230,9 @@ impl App {
             SettingsField::MaxTokens => SettingsField::Port,
             SettingsField::Temperature => SettingsField::MaxTokens,
             SettingsField::DevicesRefreshInterval => SettingsField::Temperature,
+            SettingsField::KVBits => SettingsField::DevicesRefreshInterval,
+            SettingsField::MaxBatchExp => SettingsField::KVBits,
+            SettingsField::SequenceLength => SettingsField::MaxBatchExp,
         };
     }
 
@@ -186,17 +242,26 @@ impl App {
             SettingsField::Port => SettingsField::MaxTokens,
             SettingsField::MaxTokens => SettingsField::Temperature,
             SettingsField::Temperature => SettingsField::DevicesRefreshInterval,
-            SettingsField::DevicesRefreshInterval => SettingsField::DevicesRefreshInterval,
+            SettingsField::DevicesRefreshInterval => SettingsField::KVBits,
+            SettingsField::KVBits => SettingsField::MaxBatchExp,
+            SettingsField::MaxBatchExp => SettingsField::SequenceLength,
+            SettingsField::SequenceLength => SettingsField::SequenceLength,
         };
     }
 
     fn start_edit(&mut self) {
+        self.is_editing_setting = true;
         self.input_buffer = match self.selected_field {
             SettingsField::Host => self.temp_config.api_host.clone(),
             SettingsField::Port => self.temp_config.api_port.to_string(),
             SettingsField::MaxTokens => self.temp_config.max_tokens.to_string(),
             SettingsField::Temperature => format!("{:.2}", self.temp_config.temperature),
-            SettingsField::DevicesRefreshInterval => self.temp_config.devices_refresh_interval.to_string(),
+            SettingsField::DevicesRefreshInterval => {
+                self.temp_config.devices_refresh_interval.to_string()
+            }
+            SettingsField::KVBits => self.temp_config.kv_bits.to_string(),
+            SettingsField::MaxBatchExp => self.temp_config.max_batch_exp.to_string(),
+            SettingsField::SequenceLength => self.temp_config.seq_len.to_string(),
         };
         self.status_message.clear();
     }
@@ -237,14 +302,53 @@ impl App {
             SettingsField::DevicesRefreshInterval => match self.input_buffer.parse::<u64>() {
                 Ok(interval) if interval > 0 && interval <= 3600 => {
                     self.temp_config.devices_refresh_interval = interval;
-                    self.status_message = "Devices refresh interval updated (press 's' to save)".to_string();
+                    self.status_message =
+                        "Devices refresh interval updated (press 's' to save)".to_string();
                 }
                 _ => {
                     self.status_message = "Invalid interval (must be 1-3600 seconds)!".to_string();
                 }
             },
+            SettingsField::KVBits => match self.input_buffer.as_str() {
+                "4bit" => {
+                    self.temp_config.kv_bits = crate::config::KVBits::Bits4;
+                    self.status_message = "KV Bits updated (press 's' to save)".to_string();
+                }
+                "8bit" => {
+                    self.temp_config.kv_bits = crate::config::KVBits::Bits8;
+                    self.status_message = "KV Bits updated (press 's' to save)".to_string();
+                }
+                "fp16" => {
+                    self.temp_config.kv_bits = crate::config::KVBits::FP16;
+                    self.status_message = "KV Bits updated (press 's' to save)".to_string();
+                }
+                _ => {
+                    self.status_message =
+                        "Invalid KV Bits (must be '4bit', '8bit', or 'fp16')!".to_string();
+                }
+            },
+            SettingsField::MaxBatchExp => match self.input_buffer.parse::<u8>() {
+                Ok(exp) if exp <= 8 => {
+                    self.temp_config.max_batch_exp = exp;
+                    self.status_message =
+                        "Max Batch Exponent updated (press 's' to save)".to_string();
+                }
+                _ => {
+                    self.status_message = "Invalid Max Batch Exponent (must be 0-8)!".to_string();
+                }
+            },
+            SettingsField::SequenceLength => match self.input_buffer.parse::<u32>() {
+                Ok(len) if len != 0 => {
+                    self.temp_config.seq_len = len;
+                    self.status_message = "Sequence Length updated (press 's' to save)".to_string();
+                }
+                _ => {
+                    self.status_message = "Invalid Sequence Length (must be non-zero)!".to_string();
+                }
+            },
         }
         self.input_buffer.clear();
+        self.is_editing_setting = false;
     }
 
     fn save_config(&mut self) {

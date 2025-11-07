@@ -2,6 +2,27 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
 
+#[derive(Default, Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+pub enum KVBits {
+    #[default]
+    #[serde(rename = "4bit")]
+    Bits4,
+    #[serde(rename = "8bit")]
+    Bits8,
+    #[serde(rename = "fp16")]
+    FP16,
+}
+
+impl std::fmt::Display for KVBits {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            KVBits::Bits4 => write!(f, "4bit"),
+            KVBits::Bits8 => write!(f, "8bit"),
+            KVBits::FP16 => write!(f, "fp16"),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
     pub api_host: String,
@@ -12,6 +33,12 @@ pub struct Config {
     pub temperature: f32,
     #[serde(default = "default_devices_refresh_interval")]
     pub devices_refresh_interval: u64,
+    #[serde(default)]
+    pub kv_bits: KVBits,
+    #[serde(default = "default_max_batch_exp")]
+    pub max_batch_exp: u8,
+    #[serde(default = "default_seq_len")]
+    pub seq_len: u32,
 }
 
 #[inline(always)]
@@ -23,6 +50,12 @@ fn default_temperature() -> f32 { 0.7 }
 #[inline(always)]
 #[rustfmt::skip]
 fn default_devices_refresh_interval() -> u64 { 1 }
+#[inline(always)]
+#[rustfmt::skip]
+fn default_max_batch_exp() -> u8 { 2 }
+#[inline(always)]
+#[rustfmt::skip]
+fn default_seq_len() -> u32 { 512 }
 
 impl Default for Config {
     fn default() -> Self {
@@ -32,6 +65,9 @@ impl Default for Config {
             max_tokens: default_max_tokens(),
             temperature: default_temperature(),
             devices_refresh_interval: default_devices_refresh_interval(),
+            kv_bits: KVBits::default(),
+            max_batch_exp: default_max_batch_exp(),
+            seq_len: default_seq_len(),
         }
     }
 }
