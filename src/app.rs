@@ -4,7 +4,7 @@ use crate::config::Config;
 use crate::developer::DeveloperState;
 use crate::devices::DevicesState;
 use crate::model::ModelState;
-use crate::settings::SettingsField;
+use crate::settings::{SettingsField, SettingsStatus};
 use crate::topology::TopologyState;
 use color_eyre::eyre::Result;
 use crossterm::event::EventStream;
@@ -39,7 +39,9 @@ pub struct App {
     /// Selected menu item index.
     pub selected_menu: usize,
     /// Selected settings field.
-    pub selected_field: SettingsField,
+    pub settings_selected_field: SettingsField,
+    /// Status message for the settings view.
+    pub settings_status: SettingsStatus,
     /// Selected device index in topology view.
     pub selected_device: usize,
     /// Selected model index in load model view.
@@ -80,8 +82,9 @@ impl App {
             temp_config: config.clone(),
             config,
             state,
+            settings_status: SettingsStatus::None,
+            settings_selected_field: SettingsField::Host,
             selected_menu: 0,
-            selected_field: SettingsField::Host,
             selected_device: 0,
             selected_model: 0,
             developer_menu_index: 0,
