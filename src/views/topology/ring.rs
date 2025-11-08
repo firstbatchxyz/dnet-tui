@@ -1,4 +1,5 @@
-use crate::app::{App, AppState};
+use crate::common::TopologyInfo;
+use crate::{app::AppState, utils::get_sliding_text};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{
     Frame,
@@ -11,130 +12,14 @@ use ratatui::{
     },
 };
 
-use serde::{Deserialize, Serialize};
-
 #[derive(Debug, Clone, PartialEq)]
-pub enum TopologyState {
+pub enum TopologyRingState {
     Loading,
-    Loaded(TopologyResponse),
+    Loaded,
     Error(String),
 }
 
-impl TopologyState {
-    /// Fetch topology from the API
-    pub async fn fetch(api_url: &str) -> color_eyre::Result<TopologyResponse> {
-        let url = format!("{}/v1/topology", api_url);
-        let response = reqwest::get(&url).await?;
-
-        // Get the response text first, regardless of status
-        let status = response.status();
-        let text = response.text().await?;
-
-        // Check if the response contains an error detail message (for any status code)
-        if let Ok(error_response) = serde_json::from_str::<serde_json::Value>(&text) {
-            if let Some(detail) = error_response.get("detail").and_then(|d| d.as_str()) {
-                if detail.contains("No topology configured") || detail.contains("prepare_topology") {
-                    return Err(color_eyre::eyre::eyre!("No topology configured"));
-                }
-                // For other detail messages, include them in the error
-                if !status.is_success() {
-                    return Err(color_eyre::eyre::eyre!("{}", detail));
-                }
-            }
-        }
-
-        // If we couldn't parse a detail message and status is not success, return generic error
-        if !status.is_success() {
-            if status == reqwest::StatusCode::NOT_FOUND {
-                return Err(color_eyre::eyre::eyre!("No topology found - model not loaded"));
-            }
-            return Err(color_eyre::eyre::eyre!(
-                "API returned error: {} {}",
-                status.as_u16(),
-                status.canonical_reason().unwrap_or("Unknown error")
-            ));
-        }
-
-        // Try to parse as successful topology response
-        let topology: TopologyResponse = serde_json::from_str(&text)
-            .map_err(|e| color_eyre::eyre::eyre!("Failed to parse topology response: {}", e))?;
-        Ok(topology)
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct TopologyResponse {
-    pub model: String,
-    pub num_layers: u32,
-    pub devices: Vec<Device>,
-    pub assignments: Vec<Assignment>,
-    pub solution: Solution,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct Device {
-    pub is_manager: bool,
-    pub is_busy: bool,
-    pub instance: String,
-    pub host: String,
-    pub server_port: u16,
-    pub shard_port: u16,
-    pub local_ip: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub thunderbolt: Option<ThunderboltInfo>,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ThunderboltInfo {
-    pub ip_addr: String,
-    // Using serde_json::Value to handle the complex nested structure
-    pub instances: serde_json::Value,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct Assignment {
-    pub service: String,
-    pub layers: Vec<Vec<u32>>,
-    pub next_service: String,
-    pub window_size: u32,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(untagged)]
-pub enum Solution {
-    Manual {
-        source: String
-    },
-    Optimized {
-        #[serde(default)]
-        w: Vec<u32>,
-        #[serde(default)]
-        n: Vec<u32>,
-        #[serde(default)]
-        k: u32,
-        #[serde(default)]
-        obj_value: f64,
-        #[serde(default)]
-        sets: SolutionSets,
-    },
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
-pub struct SolutionSets {
-    #[serde(rename = "M1", default)]
-    pub m1: Vec<u32>,
-    #[serde(rename = "M2", default)]
-    pub m2: Vec<u32>,
-    #[serde(rename = "M3", default)]
-    pub m3: Vec<u32>,
-}
-
-impl TopologyResponse {
-    /// Get device short name (extract first part before dots)
-    pub fn device_short_name(device: &str) -> String {
-        device.split('.').next().unwrap_or(device).to_string()
-    }
-
+impl TopologyInfo {
     /// Format layer assignments compactly (e.g., [0..11, 12..23, 24..35])
     pub fn format_layers(layers: &[Vec<u32>]) -> String {
         let ranges: Vec<String> = layers
@@ -152,8 +37,8 @@ impl TopologyResponse {
         format!("[{}]", ranges.join(", "))
     }
 }
-impl App {
-    pub fn draw_topology(&mut self, frame: &mut Frame, state: &TopologyState) {
+impl crate::App {
+    pub(super) fn draw_topology_ring_view(&mut self, frame: &mut Frame, state: &TopologyRingState) {
         let area = frame.area();
 
         let vertical = Layout::vertical([
@@ -169,7 +54,7 @@ impl App {
 
         // Content
         match state {
-            TopologyState::Loading => {
+            TopologyRingState::Loading => {
                 frame.render_widget(
                     Paragraph::new("Loading topology...")
                         .block(Block::bordered())
@@ -177,9 +62,11 @@ impl App {
                     content_area,
                 );
             }
-            TopologyState::Error(err) => {
+            TopologyRingState::Error(err) => {
                 // Check if it's a "no topology" message and style accordingly
-                let (text, style) = if err.contains("No topology configured") || err.contains("No topology available") {
+                let (text, style) = if err.contains("No topology configured")
+                    || err.contains("No topology available")
+                {
                     (
                         vec![
                             Line::from(""),
@@ -193,10 +80,11 @@ impl App {
                             Line::from("  2. Selecting 'Load Model'"),
                             Line::from("  3. Choosing your desired model"),
                             Line::from(""),
-                            Line::from("This will automatically prepare the topology for you.").dim(),
+                            Line::from("This will automatically prepare the topology for you.")
+                                .dim(),
                             Line::from(""),
                         ],
-                        Style::default().fg(Color::Yellow)
+                        Style::default().fg(Color::Yellow),
                     )
                 } else if err.contains("Cannot connect to API server") {
                     (
@@ -212,7 +100,7 @@ impl App {
                             Line::from("  3. Your network connection"),
                             Line::from(""),
                         ],
-                        Style::default().fg(Color::Red)
+                        Style::default().fg(Color::Red),
                     )
                 } else {
                     (
@@ -223,7 +111,7 @@ impl App {
                             Line::from(err.as_str()),
                             Line::from(""),
                         ],
-                        Style::default().fg(Color::Red)
+                        Style::default().fg(Color::Red),
                     )
                 };
 
@@ -235,14 +123,23 @@ impl App {
                     content_area,
                 );
             }
-            TopologyState::Loaded(topology) => {
-                self.draw_topology_ring(frame, content_area, topology);
+            TopologyRingState::Loaded => {
+                if self.topology.is_some() {
+                    self.draw_topology_ring(frame, content_area);
+                } else {
+                    frame.render_widget(
+                        Paragraph::new("No topology data available")
+                            .block(Block::bordered())
+                            .centered(),
+                        content_area,
+                    );
+                }
             }
         }
 
         // Footer
         let footer_text = match state {
-            TopologyState::Loaded(_) => {
+            TopologyRingState::Loaded => {
                 "Use ↑↓ to select device  |  Enter to interact  |  Esc to go back"
             }
             _ => "Press Esc to go back",
@@ -250,13 +147,17 @@ impl App {
         frame.render_widget(Paragraph::new(footer_text).centered(), footer_area);
     }
 
-    pub fn draw_topology_ring(
-        &mut self,
-        frame: &mut Frame,
-        area: ratatui::layout::Rect,
-        topology: &TopologyResponse,
-    ) {
+    pub fn draw_topology_ring(&mut self, frame: &mut Frame, area: ratatui::layout::Rect) {
         use std::f64::consts::PI;
+        let Some(topology) = &self.topology else {
+            frame.render_widget(
+                Paragraph::new("No topology data available")
+                    .block(Block::bordered())
+                    .centered(),
+                area,
+            );
+            return;
+        };
 
         let num_devices = topology.devices.len();
         if num_devices == 0 {
@@ -279,7 +180,7 @@ impl App {
         struct DeviceInfo {
             x: f64,
             y: f64,
-            name: String,
+            instance: String,
             ip: String,
             layers: String,
             is_selected: bool,
@@ -298,20 +199,21 @@ impl App {
             let Some(assignment) = topology
                 .assignments
                 .iter()
-                .find(|a| a.service.contains(&device.instance))
+                // TODO: could be done with equals perhaps
+                .find(|a| a.instance.contains(&device.instance))
             else {
                 continue;
             };
 
-            // Get full device name (remove "shard-" prefix)
-            let full_name = device
+            // Get device name without "shard-" prefix
+            let instance = device
                 .instance
                 .strip_prefix("shard-")
                 .unwrap_or(&device.instance)
                 .to_string();
 
             // Apply sliding window animation to device name
-            let short_name = self.get_sliding_text(&full_name, 30);
+            let short_name = get_sliding_text(self.animation_start.elapsed(), &instance, 30);
 
             // Get IP and GRPC port
             let ip = format!(
@@ -320,14 +222,14 @@ impl App {
             );
 
             // Get layer assignments
-            let layers = TopologyResponse::format_layers(&assignment.layers);
+            let layers = TopologyInfo::format_layers(&assignment.layers);
 
             let is_selected = i == self.selected_device;
 
             devices_info.push(DeviceInfo {
                 x,
                 y,
-                name: short_name,
+                instance: short_name,
                 ip,
                 layers,
                 is_selected,
@@ -344,7 +246,7 @@ impl App {
                     // TODO: clone with `.clone()`
                     d.x,
                     d.y,
-                    d.name.clone(),
+                    d.instance.clone(),
                     d.ip.clone(),
                     d.layers.clone(),
                     d.is_selected,
@@ -356,16 +258,17 @@ impl App {
 
         let model_info = format!(
             "Model: {}  |  Layers: {}",
-            topology.model, topology.num_layers
+            topology.model.clone().unwrap_or("<not loaded>".into()),
+            topology.num_layers
         );
 
-        // Draw canvas with ring
+        // draw canvas with ring
         let canvas = Canvas::default()
             .block(Block::bordered().title(model_info))
             .x_bounds([-60.0, 60.0])
             .y_bounds([-60.0, 60.0])
             .paint(move |ctx| {
-                // Draw the circle
+                // draw the circle
                 ctx.draw(&Circle {
                     x: center_x,
                     y: center_y,
@@ -373,7 +276,7 @@ impl App {
                     color: Color::Cyan,
                 });
 
-                // Draw connection lines between devices
+                // draw connection lines between devices
                 for i in 0..devices_clone.len() {
                     let (x1, y1, _, _, _, _, _, _) = devices_clone[i];
                     let next_i = (i + 1) % devices_clone.len();
@@ -408,11 +311,12 @@ impl App {
                     // If selected, draw additional points around it to make it stand out
                     if *is_selected {
                         ctx.draw(&Points {
+                            #[rustfmt::skip]
                             coords: &[
-                                (*x + 0.5, *y),
-                                (*x - 0.5, *y),
-                                (*x, *y + 0.5),
-                                (*x, *y - 0.5),
+                                (*x + 0.5, *y      ),
+                                (*x - 0.5, *y      ),
+                                (*x      , *y + 0.5),
+                                (*x      , *y - 0.5)
                             ],
                             color: Color::Yellow,
                         });
@@ -445,52 +349,7 @@ impl App {
         frame.render_widget(canvas, area);
     }
 
-    pub fn draw_shard_interaction(&mut self, frame: &mut Frame, device: &str) {
-        let area = frame.area();
-
-        let vertical = Layout::vertical([
-            Constraint::Length(3), // Title
-            Constraint::Min(0),    // Content
-            Constraint::Length(3), // Footer
-        ]);
-        let [title_area, content_area, footer_area] = vertical.areas(area);
-
-        // Title
-        let short_name = TopologyResponse::device_short_name(device);
-        let title = Line::from(format!("Shard Interaction: {}", short_name))
-            .bold()
-            .blue()
-            .centered();
-        frame.render_widget(Paragraph::new(title).block(Block::bordered()), title_area);
-
-        // Content - Placeholder for now
-        let content = vec![
-            Line::from(""),
-            Line::from(format!("Device: {}", device)).bold(),
-            Line::from(""),
-            Line::from("This window will allow you to:"),
-            Line::from("  • Send GET/POST requests to this shard"),
-            Line::from("  • View shard information"),
-            Line::from("  • Test connectivity"),
-            Line::from(""),
-            Line::from("Coming soon...").dim(),
-        ];
-
-        frame.render_widget(
-            Paragraph::new(content).block(Block::bordered().title("Shard Communication")),
-            content_area,
-        );
-
-        // Footer
-        frame.render_widget(
-            Paragraph::new("Press Esc to go back to topology")
-                .block(Block::bordered())
-                .centered(),
-            footer_area,
-        );
-    }
-
-    pub fn handle_topology_input(&mut self, key: KeyEvent) {
+    pub(super) fn handle_topology_ring_input(&mut self, key: KeyEvent) {
         match (key.modifiers, key.code) {
             (_, KeyCode::Esc) => {
                 self.state = AppState::Menu;
@@ -504,49 +363,95 @@ impl App {
         }
     }
 
-    pub fn handle_shard_interaction_input(&mut self, key: KeyEvent) {
-        match (key.modifiers, key.code) {
-            (_, KeyCode::Esc) => {
-                // Go back to topology view - restore the topology state
-                if let AppState::ShardView(_) = &self.state {
-                    // We need to restore the topology - for now go back to menu
-                    // TODO: Keep topology state when entering shard interaction
-                    self.state = AppState::Menu;
-                }
-            }
-            (KeyModifiers::CONTROL, KeyCode::Char('c') | KeyCode::Char('C')) => self.quit(),
-            _ => {}
-        }
-    }
-
     fn topology_device_up(&mut self) {
-        if let AppState::TopologyView(TopologyState::Loaded(topology)) = &self.state {
-            let device_count = topology.devices.len();
-            if device_count > 0 {
-                // Cycle: if at 0, wrap to last device
-                if self.selected_device == 0 {
-                    self.selected_device = device_count - 1;
-                } else {
-                    self.selected_device -= 1;
+        if let AppState::Topology(super::TopologyState::Ring(TopologyRingState::Loaded)) =
+            &self.state
+        {
+            if let Some(topology) = &self.topology {
+                let device_count = topology.devices.len();
+                if device_count > 0 {
+                    // Cycle: if at 0, wrap to last device
+                    if self.selected_device == 0 {
+                        self.selected_device = device_count - 1;
+                    } else {
+                        self.selected_device -= 1;
+                    }
                 }
             }
         }
     }
 
     fn topology_device_down(&mut self) {
-        if let AppState::TopologyView(TopologyState::Loaded(topology)) = &self.state {
-            let device_count = topology.devices.len();
-            if device_count > 0 {
-                // Cycle: if at last, wrap to 0
-                self.selected_device = (self.selected_device + 1) % device_count;
+        if let AppState::Topology(super::TopologyState::Ring(TopologyRingState::Loaded)) =
+            &self.state
+        {
+            if let Some(topology) = &self.topology {
+                let device_count = topology.devices.len();
+                if device_count > 0 {
+                    // Cycle: if at last, wrap to 0
+                    self.selected_device = (self.selected_device + 1) % device_count;
+                }
             }
         }
     }
 
     fn open_shard_interaction(&mut self) {
-        if let AppState::TopologyView(TopologyState::Loaded(topology)) = &self.state {
-            if let Some(device) = topology.devices.get(self.selected_device) {
-                self.state = AppState::ShardView(device.instance.clone());
+        if let AppState::Topology(super::TopologyState::Ring(TopologyRingState::Loaded)) =
+            &self.state
+        {
+            if let Some(topology) = &self.topology {
+                if let Some(device) = topology.devices.get(self.selected_device) {
+                    self.state = AppState::Topology(super::TopologyState::Shard(
+                        device.instance.clone(),
+                        super::ShardViewState::Loading,
+                    ));
+                }
+            }
+        }
+    }
+
+    /// Handle async operations for topology ring state (called during tick).
+    pub(super) async fn tick_topology_ring(&mut self, state: &TopologyRingState) {
+        if matches!(state, TopologyRingState::Loading) {
+            self.load_topology().await;
+        }
+    }
+
+    /// Load topology asynchronously and update state.
+    async fn load_topology(&mut self) {
+        match TopologyInfo::fetch(&self.config.api_url()).await {
+            Ok(topology) => {
+                self.topology = Some(topology);
+                self.state =
+                    AppState::Topology(super::TopologyState::Ring(TopologyRingState::Loaded));
+            }
+            Err(err) => {
+                // TODO: handle this better
+                // Check if the error is likely due to no model being loaded
+                let error_msg = err.to_string();
+                let friendly_msg = if error_msg.contains("No topology configured")
+                    || error_msg.contains("No topology found")
+                    || error_msg.contains("model not loaded")
+                    || error_msg.contains("prepare_topology")
+                    || error_msg.contains("404")
+                    || error_msg.contains("Not Found")
+                {
+                    "No topology configured yet. Please load a model first to create a topology."
+                        .to_string()
+                } else if error_msg.contains("connection")
+                    || error_msg.contains("refused")
+                    || error_msg.contains("error sending request")
+                {
+                    format!(
+                        "Cannot connect to API server. Please check your settings and ensure the server is running.",
+                    )
+                } else {
+                    format!("Error: {}", error_msg)
+                };
+
+                self.state = AppState::Topology(super::TopologyState::Ring(
+                    TopologyRingState::Error(friendly_msg),
+                ));
             }
         }
     }
@@ -560,8 +465,30 @@ mod tests {
     #[ignore = "run manually"]
     async fn test_fetch_topology() {
         let api_url = "http://localhost:8080";
-        let topology = TopologyState::fetch(api_url).await;
+        let topology = TopologyInfo::fetch(api_url).await;
         println!("{:#?}", topology);
         assert!(topology.is_ok());
+    }
+
+    #[test]
+    fn test_format_layers() {
+        let layers = vec![
+            vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
+            vec![12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23],
+            vec![24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35],
+            vec![36],
+        ];
+        let formatted = TopologyInfo::format_layers(&layers);
+        assert_eq!(formatted, "[0..11, 12..23, 24..35, 36]");
+
+        // edge case: empty
+        let layers_empty: Vec<Vec<u32>> = vec![];
+        let formatted_empty = TopologyInfo::format_layers(&layers_empty);
+        assert_eq!(formatted_empty, "[]");
+
+        // ignored case: missing numbers
+        let layers_missing = vec![vec![0, 1, /*2, 3,*/ 4, 5, /*6,*/ 7]];
+        let formatted_missing = TopologyInfo::format_layers(&layers_missing);
+        assert_eq!(formatted_missing, "[0..7]");
     }
 }

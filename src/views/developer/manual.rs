@@ -1,6 +1,10 @@
-use crate::app::{App, AppState};
-use crate::model::AVAILABLE_MODELS;
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use super::DeveloperState;
+use crate::AppState;
+use crate::common::{AssignmentInfo, DeviceProperties, DevicesResponse, ShardHealthResponse};
+use crate::config::{Config, KVBits};
+use crate::constants::AVAILABLE_MODELS;
+use color_eyre::eyre::Context;
+use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::{
     Frame,
     layout::{Constraint, Layout, Rect},
@@ -12,15 +16,9 @@ use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum DeveloperState {
-    Menu,
-    ManualAssignment(ManualAssignmentState),
-}
-
-#[derive(Debug, Clone, PartialEq)]
 pub enum ManualAssignmentState {
     SelectingModel,
-    FetchingShards(String), // model name
+    FetchingShards(String /* model name */),
     AssigningLayers {
         model: String,
         num_layers: u32,
@@ -42,113 +40,20 @@ pub enum ManualAssignmentState {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ShardInfo {
-    pub name: String,          // Full service name for API
-    pub instance: String,       // Short instance name for display
-    pub local_ip: String,
-    pub server_port: u16,
-    pub shard_port: u16,
+    #[serde(flatten)]
+    pub device: DeviceProperties,
     pub model_loaded: bool,
     pub assigned_layers: Vec<u32>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct HealthResponse {
-    pub status: String,
-    pub node_id: i32,
-    pub running: bool,
-    pub model_loaded: bool,
-    pub model_path: Option<String>,
-    pub assigned_layers: Vec<u32>,
-    pub queue_size: i32,
-    pub grpc_port: u16,
-    pub http_port: u16,
-    pub instance: Option<String>,
-}
-
-#[derive(Debug, Serialize)]
-struct ManualTopologyRequest {
-    model: String,
-    devices: Vec<DeviceInfo>,
-    assignments: Vec<AssignmentInfo>,
-    num_layers: u32,
-}
-
-#[derive(Debug, Serialize)]
-struct DeviceInfo {
-    name: String,
-    local_ip: String,
-    server_port: u16,
-    shard_port: u16,
-}
-
-#[derive(Debug, Serialize)]
-struct AssignmentInfo {
-    service: String,
-    layers: Vec<Vec<u32>>,
-    window_size: u32,
-    next_service: String,
-}
-
-impl App {
-    pub fn draw_developer(&mut self, frame: &mut Frame, state: &DeveloperState) {
-        match state {
-            DeveloperState::Menu => self.draw_developer_menu(frame),
-            DeveloperState::ManualAssignment(ma_state) => {
-                self.draw_manual_assignment(frame, ma_state)
-            }
-        }
-    }
-
-    fn draw_developer_menu(&mut self, frame: &mut Frame) {
+impl crate::App {
+    pub fn draw_manual_assignment(&mut self, frame: &mut Frame, state: &ManualAssignmentState) {
         let area = frame.area();
 
         let vertical = Layout::vertical([
             Constraint::Length(3), // Title
             Constraint::Min(0),    // Content
             Constraint::Length(3), // Footer
-        ]);
-        let [title_area, content_area, footer_area] = vertical.areas(area);
-
-        // Title
-        let title = Line::from("Developer Menu").bold().yellow().centered();
-        frame.render_widget(Paragraph::new(title), title_area);
-
-        // Menu items - just one option now
-        let menu_items = vec!["Manual Layer Assignment - Manually assign layers to shards"];
-
-        let items: Vec<ListItem> = menu_items
-            .iter()
-            .enumerate()
-            .map(|(i, item)| {
-                let style = if i == self.developer_menu_index {
-                    Style::default()
-                        .fg(Color::Black)
-                        .bg(Color::Yellow)
-                        .add_modifier(Modifier::BOLD)
-                } else {
-                    Style::default()
-                };
-                ListItem::new(*item).style(style)
-            })
-            .collect();
-
-        let list = List::new(items).block(Block::default().borders(Borders::ALL));
-        frame.render_widget(list, content_area);
-
-        // Footer
-        frame.render_widget(
-            Paragraph::new("Enter: Select | Esc: Back to main menu").centered(),
-            footer_area,
-        );
-    }
-
-    fn draw_manual_assignment(&mut self, frame: &mut Frame, state: &ManualAssignmentState) {
-        let area = frame.area();
-
-        let vertical = Layout::vertical([
-            Constraint::Length(3), // Title
-            Constraint::Min(0),    // Content
-            Constraint::Length(4), // Footer
         ]);
         let [title_area, content_area, footer_area] = vertical.areas(area);
 
@@ -202,16 +107,19 @@ impl App {
             }
             ManualAssignmentState::LoadingModel(model) => {
                 frame.render_widget(
-                    Paragraph::new(format!("Loading model {}...\nThis may take a few moments.", model))
-                        .block(Block::default().borders(Borders::ALL))
-                        .style(Style::default().fg(Color::Cyan))
-                        .centered(),
+                    Paragraph::new(format!(
+                        "Loading model {}...\nThis may take a few moments.",
+                        model
+                    ))
+                    .block(Block::default().borders(Borders::ALL))
+                    .style(Style::default().fg(Color::Cyan))
+                    .centered(),
                     content_area,
                 );
             }
             ManualAssignmentState::Success => {
                 frame.render_widget(
-                    Paragraph::new("✓ Manual topology prepared and model loaded successfully!")
+                    Paragraph::new("Manual topology prepared and model loaded successfully!")
                         .block(Block::default().borders(Borders::ALL))
                         .style(Style::default().fg(Color::Green))
                         .centered(),
@@ -244,7 +152,9 @@ impl App {
             ManualAssignmentState::Success | ManualAssignmentState::Error(_) => {
                 "Press Esc to go back"
             }
-            _ => "Loading...",
+            ManualAssignmentState::LoadingModel(_) => "Loading model...",
+            ManualAssignmentState::FetchingShards(_) => "Fetching shards...",
+            ManualAssignmentState::Submitting { .. } => "Submitting topology...",
         };
 
         frame.render_widget(
@@ -272,7 +182,11 @@ impl App {
             })
             .collect();
 
-        let list = List::new(model_items).block(Block::default().borders(Borders::ALL).title("Select a model"));
+        let list = List::new(model_items).block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title("Select a model"),
+        );
 
         frame.render_widget(list, area);
     }
@@ -290,46 +204,57 @@ impl App {
         input_buffer: &str,
     ) {
         let chunks = Layout::vertical([
-            Constraint::Length(3),  // Model info
-            Constraint::Min(10),    // Shard list
-            Constraint::Length(5),  // Assignment status
+            Constraint::Length(3), // Model info
+            Constraint::Min(10),   // Shard list
+            Constraint::Length(5), // Assignment status
         ])
         .split(area);
 
         // Model info
-        let model_info = vec![
-            Line::from(format!("Model: {} | Total Layers: {}", model, num_layers)),
-        ];
+        let model_info = vec![Line::from(format!(
+            "Model: {} | Total Layers: {}",
+            model, num_layers
+        ))];
         frame.render_widget(
             Paragraph::new(model_info).block(Block::default().borders(Borders::ALL)),
             chunks[0],
         );
 
         // Split shards into two groups
-        let shard_chunks = Layout::horizontal([
-            Constraint::Percentage(50),
-            Constraint::Percentage(50),
-        ])
-        .split(chunks[1]);
+        let shard_chunks =
+            Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)])
+                .split(chunks[1]);
 
         // Unassigned shards
         let mut unassigned_items = Vec::new();
         let mut assigned_items = Vec::new();
 
         for (i, shard) in shards.iter().enumerate() {
-            let shard_layers = assignments.get(&shard.instance).cloned().unwrap_or_default();
+            let shard_layers = assignments
+                .get(&shard.device.instance)
+                .cloned()
+                .unwrap_or_default();
 
             let display_text = if shard_layers.is_empty() {
-                format!("{}", shard.instance)
+                format!("{}", shard.device.instance)
             } else {
-                format!("{}: {}", shard.instance, format_layers(&shard_layers))
+                format!(
+                    "{}: {}",
+                    shard.device.instance,
+                    format_layers(&shard_layers)
+                )
             };
 
             let is_selected = i == selected_shard;
             let style = if is_selected && input_mode {
-                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD)
             } else if is_selected {
-                Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD)
+                Style::default()
+                    .fg(Color::Black)
+                    .bg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD)
             } else {
                 Style::default()
             };
@@ -347,17 +272,26 @@ impl App {
             }
         }
 
-        let unassigned_list = List::new(unassigned_items)
-            .block(Block::default().borders(Borders::ALL).title("Unassigned Shards"));
+        let unassigned_list = List::new(unassigned_items).block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title("Unassigned Shards"),
+        );
         frame.render_widget(unassigned_list, shard_chunks[0]);
 
-        let assigned_list = List::new(assigned_items)
-            .block(Block::default().borders(Borders::ALL).title("Assigned Shards"));
+        let assigned_list = List::new(assigned_items).block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title("Assigned Shards"),
+        );
         frame.render_widget(assigned_list, shard_chunks[1]);
 
         // Assignment status
         let assigned_count: usize = assignments.values().map(|v| v.len()).sum();
-        let all_layers: HashSet<u32> = assignments.values().flat_map(|v| v.iter().cloned()).collect();
+        let all_layers: HashSet<u32> = assignments
+            .values()
+            .flat_map(|v| v.iter().cloned())
+            .collect();
         let missing_layers = find_missing_layers(&all_layers, num_layers);
 
         let status_color = if missing_layers.is_empty() {
@@ -367,7 +301,7 @@ impl App {
         };
 
         let status_text = if missing_layers.is_empty() {
-            format!("✓ All {} layers assigned! Press 'C' to complete.", num_layers)
+            format!("All {} layers assigned! Press 'C' to complete.", num_layers)
         } else {
             format!(
                 "Assigned: {}/{} | Missing: {}",
@@ -385,61 +319,34 @@ impl App {
         );
     }
 
-    pub fn handle_developer_input(&mut self, key: KeyEvent, state: &DeveloperState) {
+    pub(super) fn handle_manual_assignment_input(
+        &mut self,
+        key: KeyEvent,
+        state: &ManualAssignmentState,
+    ) {
         match state {
-            DeveloperState::Menu => self.handle_developer_menu_input(key),
-            DeveloperState::ManualAssignment(ma_state) => {
-                self.handle_manual_assignment_input(key, ma_state)
-            }
-        }
-    }
-
-    fn handle_developer_menu_input(&mut self, key: KeyEvent) {
-        match (key.modifiers, key.code) {
-            (_, KeyCode::Esc) => {
-                self.state = AppState::Menu;
-                self.developer_menu_index = 0;
-            }
-            (KeyModifiers::CONTROL, KeyCode::Char('c') | KeyCode::Char('C')) => self.quit(),
-            (_, KeyCode::Enter) => {
-                // Only one option now - Manual Layer Assignment
-                if self.developer_menu_index == 0 {
+            ManualAssignmentState::SelectingModel => match (key.modifiers, key.code) {
+                (_, KeyCode::Esc) => {
+                    self.state = AppState::Developer(DeveloperState::Menu);
+                }
+                (_, KeyCode::Up) => {
+                    if self.selected_model > 0 {
+                        self.selected_model -= 1;
+                    }
+                }
+                (_, KeyCode::Down) => {
+                    if self.selected_model < AVAILABLE_MODELS.len() - 1 {
+                        self.selected_model += 1;
+                    }
+                }
+                (_, KeyCode::Enter) => {
+                    let model = AVAILABLE_MODELS[self.selected_model].to_string();
                     self.state = AppState::Developer(DeveloperState::ManualAssignment(
-                        ManualAssignmentState::SelectingModel,
+                        ManualAssignmentState::FetchingShards(model),
                     ));
-                    self.selected_model = 0;
                 }
-            }
-            _ => {}
-        }
-    }
-
-    fn handle_manual_assignment_input(&mut self, key: KeyEvent, state: &ManualAssignmentState) {
-        match state {
-            ManualAssignmentState::SelectingModel => {
-                match (key.modifiers, key.code) {
-                    (_, KeyCode::Esc) => {
-                        self.state = AppState::Developer(DeveloperState::Menu);
-                    }
-                    (_, KeyCode::Up) => {
-                        if self.selected_model > 0 {
-                            self.selected_model -= 1;
-                        }
-                    }
-                    (_, KeyCode::Down) => {
-                        if self.selected_model < AVAILABLE_MODELS.len() - 1 {
-                            self.selected_model += 1;
-                        }
-                    }
-                    (_, KeyCode::Enter) => {
-                        let model = AVAILABLE_MODELS[self.selected_model].to_string();
-                        self.state = AppState::Developer(DeveloperState::ManualAssignment(
-                            ManualAssignmentState::FetchingShards(model),
-                        ));
-                    }
-                    _ => {}
-                }
-            }
+                _ => {}
+            },
             ManualAssignmentState::AssigningLayers {
                 model,
                 num_layers,
@@ -468,7 +375,10 @@ impl App {
                             // Parse and save layers
                             if let Some(layers) = parse_layer_input(&input_buffer, num_layers) {
                                 if selected_shard < shards.len() {
-                                    assignments.insert(shards[selected_shard].instance.clone(), layers);
+                                    assignments.insert(
+                                        shards[selected_shard].device.instance.clone(),
+                                        layers,
+                                    );
                                 }
                             }
                             input_mode = false;
@@ -477,7 +387,9 @@ impl App {
                         KeyCode::Backspace => {
                             input_buffer.pop();
                         }
-                        KeyCode::Char(c) if c.is_ascii_digit() || c == ',' || c == '-' || c == ' ' => {
+                        KeyCode::Char(c)
+                            if c.is_ascii_digit() || c == ',' || c == '-' || c == ' ' =>
+                        {
                             input_buffer.push(c);
                         }
                         _ => {}
@@ -507,7 +419,8 @@ impl App {
                         }
                         (_, KeyCode::Char('c') | KeyCode::Char('C')) => {
                             // Complete assignment
-                            let all_layers: HashSet<u32> = assignments.values()
+                            let all_layers: HashSet<u32> = assignments
+                                .values()
                                 .flat_map(|v| v.iter().cloned())
                                 .collect();
                             let missing_layers = find_missing_layers(&all_layers, num_layers);
@@ -637,10 +550,8 @@ fn find_missing_layers(assigned: &HashSet<u32>, total: u32) -> Vec<u32> {
     missing
 }
 
-fn determine_next_services(
-    assignments: &HashMap<String, Vec<u32>>,
-) -> HashMap<String, String> {
-    let mut next_services = HashMap::new();
+fn determine_next_instances(assignments: &HashMap<String, Vec<u32>>) -> HashMap<String, String> {
+    let mut next_instances = HashMap::new();
 
     // Create a map of first_layer -> shard
     let mut layer_to_shard: HashMap<u32, String> = HashMap::new();
@@ -658,48 +569,40 @@ fn determine_next_services(
 
             // Find the shard that has max_layer + 1
             if let Some(next_shard) = layer_to_shard.get(&(max_layer + 1)) {
-                next_services.insert(shard.clone(), next_shard.clone());
+                next_instances.insert(shard.clone(), next_shard.clone());
             } else {
                 // This is the last shard, connect back to the first
                 if let Some(first_shard) = layer_to_shard.get(&0) {
-                    next_services.insert(shard.clone(), first_shard.clone());
+                    next_instances.insert(shard.clone(), first_shard.clone());
                 }
             }
         }
     }
 
-    next_services
+    next_instances
 }
 
 // API functions
 impl ManualAssignmentState {
-    pub async fn fetch_shards_with_model(api_url: &str, model: &str) -> color_eyre::Result<(Vec<ShardInfo>, u32)> {
-        // Get model info to know number of layers
-        let num_layers = get_model_layers(model);
-
-        // Get devices from the /v1/devices endpoint
+    pub async fn fetch_shards_with_model(api_url: &str) -> color_eyre::Result<Vec<ShardInfo>> {
+        // get devices from the /v1/devices endpoint
         let devices_url = format!("{}/v1/devices", api_url);
-        let response = reqwest::get(&devices_url).await?;
-        let devices_response: serde_json::Value = response.json().await?;
+        let response = reqwest::get(&devices_url)
+            .await
+            .wrap_err("Could not fetch devices")?;
+        let devices_response: DevicesResponse = response.json().await?;
 
         let mut shards = Vec::new();
+        for device in devices_response.devices.into_values() {
+            if device.is_manager {
+                continue; // skip the manager nodes (API)
+            }
 
-        if let Some(devices) = devices_response["devices"].as_object() {
-            for (key, device) in devices {
-                // Skip the API manager node
-                if device["is_manager"].as_bool().unwrap_or(false) {
-                    continue;
-                }
-
-                let instance = device["instance"].as_str().unwrap_or("").to_string();
-                let local_ip = device["local_ip"].as_str().unwrap_or("127.0.0.1").to_string();
-                let server_port = device["server_port"].as_u64().unwrap_or(0) as u16;
-                let shard_port = device["shard_port"].as_u64().unwrap_or(0) as u16;
-
-                // Get health info if possible
-                let health_url = format!("http://{}:{}/health", local_ip, server_port);
-                let (model_loaded, assigned_layers) = if let Ok(health_response) = reqwest::get(&health_url).await {
-                    if let Ok(health) = health_response.json::<HealthResponse>().await {
+            // Get shard health info
+            let health_url = format!("http://{}:{}/health", device.local_ip, device.server_port);
+            let (model_loaded, assigned_layers) =
+                if let Ok(health_response) = reqwest::get(&health_url).await {
+                    if let Ok(health) = health_response.json::<ShardHealthResponse>().await {
                         (health.model_loaded, health.assigned_layers)
                     } else {
                         (false, Vec::new())
@@ -708,74 +611,81 @@ impl ManualAssignmentState {
                     (false, Vec::new())
                 };
 
-                shards.push(ShardInfo {
-                    name: key.clone(), // Full service name for API
-                    instance,          // Short instance name for display
-                    local_ip,
-                    server_port,
-                    shard_port,
-                    model_loaded,
-                    assigned_layers,
-                });
-            }
+            shards.push(ShardInfo {
+                device,
+                model_loaded,
+                assigned_layers,
+            });
         }
 
-        Ok((shards, num_layers))
+        Ok(shards)
     }
 
     pub async fn submit_manual_topology(
-        api_url: &str,
+        config: &Config,
         model: &str,
         shards: &[ShardInfo],
         assignments: &HashMap<String, Vec<u32>>,
     ) -> color_eyre::Result<()> {
+        #[derive(Debug, Serialize, Deserialize)]
+        struct PrepareManualTopologyRequest {
+            model: String,
+            devices: Vec<DeviceProperties>,
+            assignments: Vec<AssignmentInfo>,
+            num_layers: u32,
+            kv_bits: KVBits,
+            seq_len: u32,
+            max_batch_size: u8,
+        }
         let num_layers = get_model_layers(model);
 
-        // Determine next services automatically
-        let next_services = determine_next_services(assignments);
+        // Determine next instances automatically
+        let next_instances = determine_next_instances(assignments);
 
         // Build devices array
-        let devices: Vec<DeviceInfo> = shards
+        let devices: Vec<DeviceProperties> = shards
             .iter()
-            .filter(|s| assignments.contains_key(&s.instance))
-            .map(|shard| DeviceInfo {
-                name: shard.name.clone(),
-                local_ip: shard.local_ip.clone(),
-                server_port: shard.server_port,
-                shard_port: shard.shard_port,
-            })
+            .filter(|s| assignments.contains_key(&s.device.instance))
+            .map(|shard| shard.device.clone())
             .collect();
 
         // Build assignments array
         let assignment_infos: Vec<AssignmentInfo> = shards
             .iter()
             .filter_map(|shard| {
-                assignments.get(&shard.instance).map(|layers| {
-                    let next_service = next_services
-                        .get(&shard.instance)
+                assignments.get(&shard.device.instance).map(|layers| {
+                    let next_instance = next_instances
+                        .get(&shard.device.instance)
                         .and_then(|next_instance| {
-                            shards.iter().find(|s| s.instance == *next_instance).map(|s| s.name.clone())
+                            shards
+                                .iter()
+                                .find(|s| s.device.instance == *next_instance)
+                                .map(|s| s.device.instance.clone())
                         })
-                        .unwrap_or_else(|| shard.name.clone());
+                        .unwrap_or_else(|| shard.device.instance.clone());
 
                     AssignmentInfo {
-                        service: shard.name.clone(),
+                        instance: shard.device.instance.clone(),
                         layers: vec![layers.clone()],
                         window_size: layers.len() as u32,
-                        next_service,
+                        residency_size: layers.len() as u32, // FIXME: adjust this?
+                        next_instance,
                     }
                 })
             })
             .collect();
 
-        let request = ManualTopologyRequest {
+        let request = PrepareManualTopologyRequest {
             model: model.to_string(),
             devices,
             assignments: assignment_infos,
             num_layers,
+            kv_bits: config.kv_bits,
+            seq_len: config.seq_len,
+            max_batch_size: config.max_batch_exp,
         };
 
-        let url = format!("{}/v1/prepare_topology_manual", api_url);
+        let url = format!("{}/v1/prepare_topology_manual", config.api_url());
         let client = reqwest::Client::new();
         let response = client.post(&url).json(&request).send().await?;
 
@@ -783,22 +693,133 @@ impl ManualAssignmentState {
             Ok(())
         } else {
             let error_text = response.text().await?;
-            Err(color_eyre::eyre::eyre!("Failed to submit topology: {}", error_text))
+            Err(color_eyre::eyre::eyre!(
+                "Failed to submit topology: {}",
+                error_text
+            ))
         }
     }
 }
 
-// Helper to get number of layers for a model
-fn get_model_layers(model: &str) -> u32 {
-    // This should match the actual model layer counts
-    // You might want to get this from an API endpoint
+/// Helper to get number of layers for a model
+///
+/// This should match the actual model layer counts
+/// You might want to get this from an API endpoint
+#[rustfmt::skip]
+fn get_model_layers(model: &str) -> u32 {    
     match model {
-        "Qwen/Qwen3-4B-MLX-4bit" | "Qwen/Qwen3-4B-MLX-8bit" => 36,
-        "Qwen/Qwen3-30B-A3B-MLX-8bit" | "Qwen/Qwen3-30B-A3B-MLX-bf16" | "Qwen/Qwen3-30B-A3B-MLX-6bit" => 30,
-        "Qwen/Qwen3-32B-MLX-bf16" | "Qwen/Qwen3-32B-MLX-8bit" | "Qwen/Qwen3-32B-MLX-6bit" => 32,
+        "Qwen/Qwen3-4B-MLX-4bit" 
+      | "Qwen/Qwen3-4B-MLX-8bit" => 36,
+
+        "Qwen/Qwen3-30B-A3B-MLX-8bit"
+      | "Qwen/Qwen3-30B-A3B-MLX-bf16"
+      | "Qwen/Qwen3-30B-A3B-MLX-6bit" => 30,
+        
+        "Qwen/Qwen3-32B-MLX-bf16"
+      | "Qwen/Qwen3-32B-MLX-8bit"
+      | "Qwen/Qwen3-32B-MLX-6bit" => 32,
+
         "NousResearch/Hermes-4-70B" => 70,
-        "openai/gpt-oss-120b" => 120,
-        "openai/gpt-oss-20b" => 20,
-        _ => 36, // Default
+
+        "mlx-community/Meta-Llama-3.1-8B-Instruct-4bit"
+      | "mlx-community/Meta-Llama-3.1-8B-Instruct-8bit" => 32,
+
+        "mlx-community/Meta-Llama-3.1-70B-Instruct-4bit"
+      | "mlx-community/Meta-Llama-3.1-70B-Instruct-8bit" => 80,
+
+        // gpt OSS 20b
+        "openai/gpt-oss-20b"
+      | "mlx-community/gpt-oss-20b-MXFP4-Q4" 
+      | "mlx-community/gpt-oss-20b-MXFP4-Q8" => 24,
+
+        // gpt OSS 120b
+        "openai/gpt-oss-120b"
+      | "mlx-community/gpt-oss-120b-MXFP4-Q4"
+      | "mlx-community/gpt-oss-120b-MXFP4-Q8" => 36,
+
+        _ => 36, // default fallback FIXME: smelly
+    }
+}
+
+impl crate::App {
+    /// Handle async operations for manual assignment state (called during tick).
+    pub(super) async fn tick_manual_assignment(&mut self, state: &ManualAssignmentState) {
+        match state {
+            ManualAssignmentState::FetchingShards(model) => {
+                match ManualAssignmentState::fetch_shards_with_model(&self.config.api_url()).await {
+                    Ok(shards) => {
+                        self.state = AppState::Developer(DeveloperState::ManualAssignment(
+                            ManualAssignmentState::AssigningLayers {
+                                num_layers: get_model_layers(model),
+                                model: model.clone(),
+                                shards,
+                                assignments: HashMap::new(),
+                                selected_shard: 0,
+                                input_mode: false,
+                                input_buffer: String::new(),
+                            },
+                        ));
+                    }
+                    Err(err) => {
+                        self.state = AppState::Developer(DeveloperState::ManualAssignment(
+                            ManualAssignmentState::Error(format!("{:#?}", err.to_string())),
+                        ));
+                    }
+                }
+            }
+            ManualAssignmentState::Submitting {
+                model,
+                shards,
+                assignments,
+            } => {
+                let model_name = model.clone();
+                match ManualAssignmentState::submit_manual_topology(
+                    &self.config,
+                    &model,
+                    &shards,
+                    &assignments,
+                )
+                .await
+                {
+                    Ok(_) => {
+                        // Topology prepared, now load the model
+                        self.state = AppState::Developer(DeveloperState::ManualAssignment(
+                            ManualAssignmentState::LoadingModel(model_name),
+                        ));
+                    }
+                    Err(err) => {
+                        self.state = AppState::Developer(DeveloperState::ManualAssignment(
+                            ManualAssignmentState::Error(format!("{:#?}", err.to_string())),
+                        ));
+                    }
+                }
+            }
+            ManualAssignmentState::LoadingModel(model) => {
+                // Load the model using the existing LoadModelState functionality
+                match crate::model::LoadModelState::load_model(&self.config.api_url(), Some(&model))
+                    .await
+                {
+                    Ok(_response) => {
+                        self.state = AppState::Developer(DeveloperState::ManualAssignment(
+                            ManualAssignmentState::Success,
+                        ));
+                        // Fetch topology after successful manual assignment
+                        if let Ok(topology) =
+                            crate::common::TopologyInfo::fetch(&self.config.api_url()).await
+                        {
+                            self.topology = Some(topology);
+                        }
+                    }
+                    Err(err) => {
+                        self.state = AppState::Developer(DeveloperState::ManualAssignment(
+                            ManualAssignmentState::Error(format!("Failed to load model: {}", err)),
+                        ));
+                    }
+                }
+            }
+            _ => {
+                // No async operations needed for other states
+            }
+        }
     }
 }
