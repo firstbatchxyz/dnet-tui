@@ -232,7 +232,11 @@ impl App {
             .position(|s| *s == self.settings_selected_field)
             .unwrap_or_default(); // guaranteed to unwrap anyways
 
-        self.settings_selected_field = SettingsField::ALL[(idx - 1) % SettingsField::ALL.len()];
+        self.settings_selected_field = if idx == 0 {
+            SettingsField::ALL[SettingsField::ALL.len() - 1]
+        } else {
+            SettingsField::ALL[idx - 1]
+        };
     }
 
     fn settings_down(&mut self) {

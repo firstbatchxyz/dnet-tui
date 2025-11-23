@@ -6,8 +6,6 @@ use serde::{Deserialize, Serialize};
 pub struct ShardHealthResponse {
     /// Health status (e.g., 'ok')
     pub status: String,
-    /// Node identifier
-    pub node_id: u32,
     /// Whether the node is running
     pub running: bool,
     /// Whether a model is currently loaded

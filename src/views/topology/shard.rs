@@ -144,7 +144,6 @@ impl App {
 
         // Node information
         lines.push("━━━ Node Information ━━━".bold().cyan().into());
-        lines.push(format!("  Node ID:        {}", health.node_id).into());
         lines.push(format!("  Instance:       {}", health.instance).into());
         lines.push(format!("  HTTP Port:      {}", health.http_port).into());
         lines.push(format!("  gRPC Port:      {}", health.grpc_port).into());
