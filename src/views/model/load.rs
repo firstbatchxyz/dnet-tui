@@ -1,6 +1,5 @@
 use crate::common::TopologyInfo;
 use crate::config::{Config, KVBits};
-use crate::constants::AVAILABLE_MODELS;
 use crate::{App, AppState};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{
@@ -171,7 +170,8 @@ impl App {
     }
 
     fn draw_model_selection(&mut self, frame: &mut Frame, area: ratatui::layout::Rect) {
-        let model_items: Vec<ListItem> = AVAILABLE_MODELS
+        let model_items: Vec<ListItem> = self
+            .available_models
             .iter()
             .enumerate()
             .map(|(i, model)| {
@@ -183,7 +183,7 @@ impl App {
                 } else {
                     Style::default()
                 };
-                ListItem::new(format!("  {}", model)).style(style)
+                ListItem::new(format!("  {}", model.id)).style(style)
             })
             .collect();
 
@@ -302,13 +302,13 @@ impl App {
     }
 
     fn model_down(&mut self) {
-        if self.selected_model < AVAILABLE_MODELS.len() - 1 {
+        if self.selected_model < self.available_models.len() - 1 {
             self.selected_model += 1;
         }
     }
 
     fn start_model_load(&mut self) {
-        let model = AVAILABLE_MODELS[self.selected_model].to_string();
+        let model = self.available_models[self.selected_model].id.clone();
         self.state = AppState::Model(super::ModelState::Load(LoadModelState::PreparingTopology(
             model,
         )));

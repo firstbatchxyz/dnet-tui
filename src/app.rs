@@ -66,6 +66,8 @@ pub struct App {
     pub chat: ChatActiveState,
     /// Current topology (if present).
     pub topology: Option<TopologyInfo>,
+    /// Available models fetched from API
+    pub available_models: Vec<crate::common::ModelInfo>,
 }
 
 impl App {
@@ -99,6 +101,7 @@ impl App {
             pending_chat_message: None,
             chat: ChatActiveState::new(),
             topology: None,
+            available_models: Vec::new(),
         })
     }
 

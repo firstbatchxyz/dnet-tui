@@ -92,7 +92,7 @@ impl MenuItem {
             MenuItem::LoadModel => {
                 "Load a model"
                 // FIXME: !!!
-                // if model_loaded {
+                // if self. {
                 //     "Load a model (model already loaded)"
                 // } else {
                 //     "Load a model"
@@ -129,6 +129,19 @@ impl MenuItem {
 impl App {
     /// Handle async operations for menu state (called during tick).
     pub(crate) async fn tick_menu(&mut self) {
+        // Fetch available models once on first menu load
+        if self.available_models.is_empty() {
+            match crate::common::get_models_from_api(&self.config.api_url()).await {
+                Ok(models) => {
+                    self.available_models = models;
+                }
+                Err(_) => {
+                    // mark as failed by setting to empty vec
+                    self.available_models = Vec::new();
+                }
+            }
+        }
+
         // Check topology every few seconds to avoid excessive API calls
         const TOPOLOGY_CHECK_INTERVAL: std::time::Duration = std::time::Duration::from_secs(1);
 
@@ -152,7 +165,7 @@ impl App {
         let area = frame.area();
 
         // ASCII Art
-        let ascii_art: Vec<_> = crate::constants::MENU_BANNER
+        let ascii_art: Vec<_> = MENU_BANNER
             .map(|line| Line::from(line).centered())
             .into_iter()
             .collect();
@@ -312,3 +325,25 @@ impl App {
         }
     }
 }
+
+/// A Dria & DNET ASCII art banner for the menu screen.
+const MENU_BANNER: [&str; 18] = [
+    "                                                                             ",
+    "      00000    000000                                                        ",
+    "   000    000000000000000   0000000000000000      000000000000          00000",
+    " 000       000000   000000000   00000    00000 000    00000            000000",
+    "00        00000     000000     00000    00000000     00000           00000000",
+    "00       00000     0000000    00000    00000000     00000           00 000000",
+    "00      00000     0000000    0000000000000  000    00000          00  0000000",
+    " 000   00000     0000000    00000   000000  00    000000        000   000000 ",
+    "      00000      00000     00000    00000   00   00000000      00    0000000 ",
+    "     00000     000000     000000   000000    00 000000  0000000000000 00000  ",
+    "    00000    0000000     00000     00000 0     000000      000        00000  ",
+    " 0000000   00000       0000000    00000000  000000000    000        0000000  ",
+    "",
+    "",
+    " ⠀⠀⣠⣤⠐⣦⡀⠀⠴⠢⣤⣄⠀⢀⠄⠀⠀⢠⣶⠂⠀⢐⠆⢀⡤⢠⣤⠂⢤",
+    " ⠀⣰⡟⠀⢠⣿⠁⠀⠀⠌⢹⣿⢀⠎⠀⡄⢠⣿⠃⡴⠀⠀⠀⠊⢀⣾⠃⠀⠁",
+    "⢀⣰⡟⢀⡴⠟⠁⠀⢀⠈⠀⠘⣿⠏⠀⠀⣰⣿⡁⢀⡰⠀⠀⠀⣠⣿⠃⠀⠀⠀",
+    env!("CARGO_PKG_VERSION"),
+];

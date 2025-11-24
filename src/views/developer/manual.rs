@@ -2,8 +2,8 @@ use super::DeveloperState;
 use crate::AppState;
 use crate::common::{AssignmentInfo, DeviceProperties, DevicesResponse, ShardHealthResponse};
 use crate::config::{Config, KVBits};
-use crate::constants::AVAILABLE_MODELS;
-use color_eyre::eyre::Context;
+use crate::utils::ModelConfig;
+use color_eyre::eyre::{Context, OptionExt};
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::{
     Frame,
@@ -166,7 +166,8 @@ impl crate::App {
     }
 
     fn draw_model_selection_for_manual(&mut self, frame: &mut Frame, area: Rect) {
-        let model_items: Vec<ListItem> = AVAILABLE_MODELS
+        let model_items: Vec<ListItem> = self
+            .available_models
             .iter()
             .enumerate()
             .map(|(i, model)| {
@@ -178,7 +179,7 @@ impl crate::App {
                 } else {
                     Style::default()
                 };
-                ListItem::new(format!("  {}", model)).style(style)
+                ListItem::new(format!("  {}", model.id)).style(style)
             })
             .collect();
 
@@ -335,12 +336,12 @@ impl crate::App {
                     }
                 }
                 (_, KeyCode::Down) => {
-                    if self.selected_model < AVAILABLE_MODELS.len() - 1 {
+                    if self.selected_model < self.available_models.len() - 1 {
                         self.selected_model += 1;
                     }
                 }
                 (_, KeyCode::Enter) => {
-                    let model = AVAILABLE_MODELS[self.selected_model].to_string();
+                    let model = self.available_models[self.selected_model].id.clone();
                     self.state = AppState::Developer(DeveloperState::ManualAssignment(
                         ManualAssignmentState::FetchingShards(model),
                     ));
@@ -637,7 +638,10 @@ impl ManualAssignmentState {
             seq_len: u32,
             max_batch_size: u8,
         }
-        let num_layers = get_model_layers(model);
+        let num_layers = ModelConfig::get_model_config(model)
+            .await?
+            .num_layers()
+            .ok_or_eyre("Could not determine number of layers")? as u32;
 
         // Determine next instances automatically
         let next_instances = determine_next_instances(assignments);
@@ -701,46 +705,6 @@ impl ManualAssignmentState {
     }
 }
 
-/// Helper to get number of layers for a model
-///
-/// This should match the actual model layer counts
-/// You might want to get this from an API endpoint
-#[rustfmt::skip]
-fn get_model_layers(model: &str) -> u32 {    
-    match model {
-        "Qwen/Qwen3-4B-MLX-4bit" 
-      | "Qwen/Qwen3-4B-MLX-8bit" => 36,
-
-        "Qwen/Qwen3-30B-A3B-MLX-8bit"
-      | "Qwen/Qwen3-30B-A3B-MLX-bf16"
-      | "Qwen/Qwen3-30B-A3B-MLX-6bit" => 30,
-        
-        "Qwen/Qwen3-32B-MLX-bf16"
-      | "Qwen/Qwen3-32B-MLX-8bit"
-      | "Qwen/Qwen3-32B-MLX-6bit" => 32,
-
-        "NousResearch/Hermes-4-70B" => 70,
-
-        "mlx-community/Meta-Llama-3.1-8B-Instruct-4bit"
-      | "mlx-community/Meta-Llama-3.1-8B-Instruct-8bit" => 32,
-
-        "mlx-community/Meta-Llama-3.1-70B-Instruct-4bit"
-      | "mlx-community/Meta-Llama-3.1-70B-Instruct-8bit" => 80,
-
-        // gpt OSS 20b
-        "openai/gpt-oss-20b"
-      | "mlx-community/gpt-oss-20b-MXFP4-Q4" 
-      | "mlx-community/gpt-oss-20b-MXFP4-Q8" => 24,
-
-        // gpt OSS 120b
-        "openai/gpt-oss-120b"
-      | "mlx-community/gpt-oss-120b-MXFP4-Q4"
-      | "mlx-community/gpt-oss-120b-MXFP4-Q8" => 36,
-
-        _ => 36, // default fallback FIXME: smelly
-    }
-}
-
 impl crate::App {
     /// Handle async operations for manual assignment state (called during tick).
     pub(super) async fn tick_manual_assignment(&mut self, state: &ManualAssignmentState) {
@@ -748,17 +712,32 @@ impl crate::App {
             ManualAssignmentState::FetchingShards(model) => {
                 match ManualAssignmentState::fetch_shards_with_model(&self.config.api_url()).await {
                     Ok(shards) => {
-                        self.state = AppState::Developer(DeveloperState::ManualAssignment(
-                            ManualAssignmentState::AssigningLayers {
-                                num_layers: get_model_layers(model),
-                                model: model.clone(),
-                                shards,
-                                assignments: HashMap::new(),
-                                selected_shard: 0,
-                                input_mode: false,
-                                input_buffer: String::new(),
-                            },
-                        ));
+                        match ModelConfig::get_model_config(model)
+                            .await
+                            .and_then(|config| {
+                                config
+                                    .num_layers()
+                                    .ok_or_eyre("Could not determine number of layers from config")
+                            }) {
+                            Ok(num_layers) => {
+                                self.state = AppState::Developer(DeveloperState::ManualAssignment(
+                                    ManualAssignmentState::AssigningLayers {
+                                        model: model.clone(),
+                                        num_layers: num_layers as u32,
+                                        shards,
+                                        assignments: HashMap::new(),
+                                        selected_shard: 0,
+                                        input_mode: false,
+                                        input_buffer: String::new(),
+                                    },
+                                ));
+                            }
+                            Err(err) => {
+                                self.state = AppState::Developer(DeveloperState::ManualAssignment(
+                                    ManualAssignmentState::Error(format!("{:#?}", err.to_string())),
+                                ));
+                            }
+                        }
                     }
                     Err(err) => {
                         self.state = AppState::Developer(DeveloperState::ManualAssignment(
