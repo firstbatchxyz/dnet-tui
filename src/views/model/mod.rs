@@ -6,22 +6,22 @@ pub use unload::*;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ModelView {
-    Load(LoadModelState),
-    Unload(UnloadModelState),
+    Load(LoadModelView),
+    Unload(UnloadModelView),
 }
 
 impl crate::App {
     /// Handle async operations for model state (called during tick).
-    pub(crate) async fn tick_model(&mut self, state: &ModelView) {
-        match state {
+    pub(crate) async fn tick_model(&mut self, view: &ModelView) {
+        match view {
             ModelView::Load(load_state) => self.tick_load_model(load_state).await,
             ModelView::Unload(unload_state) => self.tick_unload_model(unload_state).await,
         }
     }
 
     /// Draw model state.
-    pub(crate) fn draw_model(&mut self, frame: &mut ratatui::Frame, state: &ModelView) {
-        match state {
+    pub(crate) fn draw_model(&mut self, frame: &mut ratatui::Frame, view: &ModelView) {
+        match view {
             ModelView::Load(load_state) => self.draw_load_model(frame, load_state),
             ModelView::Unload(unload_state) => self.draw_unload_model(frame, unload_state),
         }

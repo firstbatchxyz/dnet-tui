@@ -1,7 +1,9 @@
+use std::time::{Duration, Instant};
+
 use crate::developer::DeveloperView;
-use crate::model::{LoadModelState, UnloadModelState};
+use crate::model::{LoadModelView, UnloadModelView};
 use crate::topology::TopologyView;
-use crate::views::topology::TopologyRingState;
+use crate::views::topology::TopologyRingView;
 use crate::{App, AppView};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{
@@ -12,10 +14,22 @@ use ratatui::{
     widgets::{List, ListItem, Paragraph},
 };
 
-#[derive(Default, Debug, Clone)]
+#[derive(Debug)]
 pub struct MenuState {
     /// Selected menu item index.
     pub selection_idx: usize,
+    /// Last time we checked topology in the menu
+    pub last_topology_check: Instant,
+}
+
+impl Default for MenuState {
+    fn default() -> Self {
+        Self {
+            selection_idx: 0,
+            // make this older to trigger immediate check
+            last_topology_check: Instant::now() - Duration::from_secs(10),
+        }
+    }
 }
 
 /// A menu item.
@@ -149,11 +163,14 @@ impl MenuItem {
 }
 
 impl App {
+    // Check topology every few seconds to avoid excessive API calls
+    const TOPOLOGY_CHECK_INTERVAL: std::time::Duration = std::time::Duration::from_secs(1);
+
     /// Handle async operations for menu state (called during tick).
     pub(crate) async fn tick_menu(&mut self) {
         // Fetch available models once on first menu load
         if self.available_models.is_empty() {
-            match crate::common::get_models_from_api(&self.config.api_url()).await {
+            match self.api.get_models().await {
                 Ok(models) => {
                     self.available_models = models;
                 }
@@ -164,14 +181,12 @@ impl App {
             }
         }
 
-        // Check topology every few seconds to avoid excessive API calls
-        const TOPOLOGY_CHECK_INTERVAL: std::time::Duration = std::time::Duration::from_secs(1);
-
         let now = std::time::Instant::now();
-        if now.duration_since(self.last_topology_check) >= TOPOLOGY_CHECK_INTERVAL {
-            self.last_topology_check = now;
+        if now.duration_since(self.state.menu.last_topology_check) >= Self::TOPOLOGY_CHECK_INTERVAL
+        {
+            self.state.menu.last_topology_check = now;
 
-            match crate::common::TopologyInfo::fetch(&self.config.api_url()).await {
+            match self.api.get_topology().await {
                 Ok(topology) => {
                     self.topology = Some(topology);
                 }
@@ -311,8 +326,8 @@ impl App {
             }
             MenuItem::ViewTopology => {
                 if self.topology.is_some() {
-                    self.view = AppView::Topology(TopologyView::Ring(TopologyRingState::Loaded));
-                    self.selected_device = 0;
+                    self.state.topology.selected_device = 0; // reset to not overflow
+                    self.view = AppView::Topology(TopologyView::Ring(TopologyRingView::Loaded));
                 } else {
                     // if topology not loaded, do nothing (item is disabled)
                 }
@@ -323,7 +338,7 @@ impl App {
                     // if model already loaded, do nothing (item is disabled)
                 } else {
                     self.view = AppView::Model(super::model::ModelView::Load(
-                        LoadModelState::SelectingModel,
+                        LoadModelView::SelectingModel,
                     ));
                     self.selected_model = 0;
                     self.status_message.clear();
@@ -331,22 +346,21 @@ impl App {
             }
             MenuItem::UnloadModel => {
                 if self.topology.is_some() {
-                    self.view = AppView::Model(super::model::ModelView::Unload(
-                        UnloadModelState::Unloading,
-                    ));
+                    self.view =
+                        AppView::Model(super::model::ModelView::Unload(UnloadModelView::Unloading));
                     self.status_message.clear();
                 } else {
                     // if topology not loaded, do nothing (item is disabled)
                 }
             }
             MenuItem::Settings => {
-                self.view = AppView::Settings;
-                self.temp_config = self.config.clone();
+                // reset settings config
+                self.state.settings.temp_config = self.config.clone();
                 self.status_message.clear();
+                self.view = AppView::Settings;
             }
             MenuItem::Developer => {
                 self.view = AppView::Developer(DeveloperView::Menu);
-                self.developer_menu_index = 0;
             }
             MenuItem::Exit => self.quit(),
         }

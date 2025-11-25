@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use serde::{Deserialize, Serialize};
 
 /// A device info as retrieved from the API, which reads from the discovery module.
@@ -24,12 +22,6 @@ pub struct DeviceProperties {
     pub local_ip: String,
     /// Additional Thunderbolt-specific info, if applicable.
     pub thunderbolt: Option<ThunderboltData>,
-}
-
-/// The response from the `/v1/devices` endpoint.
-#[derive(Debug, Clone, Deserialize)]
-pub struct DevicesResponse {
-    pub devices: HashMap<String, DeviceProperties>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

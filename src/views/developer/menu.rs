@@ -33,7 +33,7 @@ impl crate::App {
             .iter()
             .enumerate()
             .map(|(i, item)| {
-                let style = if i == self.developer_menu_index {
+                let style = if i == self.state.developer.menu_index {
                     Style::default()
                         .fg(Color::Black)
                         .bg(Color::Yellow)
@@ -59,12 +59,12 @@ impl crate::App {
         match (key.modifiers, key.code) {
             (_, KeyCode::Esc) => {
                 self.view = AppView::Menu;
-                self.developer_menu_index = 0;
+                self.state.developer.menu_index = 0;
             }
             (KeyModifiers::CONTROL, KeyCode::Char('c') | KeyCode::Char('C')) => self.quit(),
             (_, KeyCode::Enter) => {
                 // Only one option now - Manual Layer Assignment
-                if self.developer_menu_index == 0 {
+                if self.state.developer.menu_index == 0 {
                     self.view = AppView::Developer(DeveloperView::ManualAssignment(
                         super::ManualAssignmentView::SelectingModel,
                     ));

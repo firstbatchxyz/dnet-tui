@@ -12,6 +12,14 @@ pub enum DeveloperView {
     ManualAssignment(ManualAssignmentView),
 }
 
+#[derive(Debug, Default)]
+pub struct DeveloperState {
+    /// Selected developer menu index.
+    pub menu_index: usize,
+
+    pub manual: ManualAssignmentState,
+}
+
 impl crate::App {
     pub fn draw_developer(&mut self, frame: &mut Frame, state: &DeveloperView) {
         match state {

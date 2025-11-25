@@ -10,7 +10,7 @@ use ratatui::{
     widgets::{Block, Paragraph},
 };
 
-#[derive(Default, Debug, Clone)]
+#[derive(Default, Debug)]
 pub struct SettingsState {
     /// Selected settings field.
     pub selection: SettingsField,
@@ -18,6 +18,8 @@ pub struct SettingsState {
     pub status: SettingsStatus,
     /// Whether we're currently editing a settings field.
     pub is_editing: bool,
+    /// Temporary config for editing stuff.
+    pub temp_config: Config,
 }
 
 /// Possible settings fields.
@@ -163,7 +165,7 @@ impl App {
                     self.state.settings.selection,
                     self.state.settings.is_editing,
                     &self.input_buffer,
-                    &self.temp_config,
+                    &self.state.settings.temp_config,
                 )
             })
             .collect::<Vec<_>>();
@@ -259,12 +261,18 @@ impl App {
 
     fn start_edit(&mut self) {
         self.state.settings.is_editing = true;
-        self.input_buffer = self.temp_config.read_setting(self.state.settings.selection);
+        self.input_buffer = self
+            .state
+            .settings
+            .temp_config
+            .read_setting(self.state.settings.selection);
         self.state.settings.status.clear();
     }
 
     fn apply_edit(&mut self) {
         match self
+            .state
+            .settings
             .temp_config
             .write_setting(self.state.settings.selection, &self.input_buffer)
         {
@@ -283,9 +291,13 @@ impl App {
     }
 
     fn save_config(&mut self) {
-        match self.temp_config.save_to_dria() {
+        match self.state.settings.temp_config.save_to_dria() {
             Ok(_) => {
-                self.config = self.temp_config.clone();
+                use crate::common::ApiClient;
+
+                self.config = self.state.settings.temp_config.clone();
+                // update API client as well
+                self.api = ApiClient::new(&self.config.api_host, self.config.api_port);
                 self.state.settings.status = SettingsStatus::Info(format!(
                     "Configuration saved to {}",
                     Config::current_location()

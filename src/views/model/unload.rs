@@ -8,21 +8,19 @@ use ratatui::{
 };
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum UnloadModelState {
+pub enum UnloadModelView {
     Unloading,
     Error(String),
     Success,
 }
 
-impl UnloadModelState {
+impl UnloadModelView {
     /// Unload model by calling the API
     pub async fn unload_model(api_url: &str) -> color_eyre::Result<()> {
         let url = format!("{}/v1/unload_model", api_url);
         let client = reqwest::Client::new();
 
         let response = client.post(&url).send().await?;
-
-        // Check if response is successful
         if response.status().is_success() {
             Ok(())
         } else {
@@ -33,7 +31,7 @@ impl UnloadModelState {
 }
 
 impl crate::App {
-    pub(super) fn draw_unload_model(&mut self, frame: &mut Frame, state: &UnloadModelState) {
+    pub(super) fn draw_unload_model(&mut self, frame: &mut Frame, state: &UnloadModelView) {
         let area = frame.area();
 
         let vertical = Layout::vertical([
@@ -49,7 +47,7 @@ impl crate::App {
 
         // Content
         match state {
-            UnloadModelState::Unloading => {
+            UnloadModelView::Unloading => {
                 frame.render_widget(
                     Paragraph::new("Unloading model...")
                         .block(Block::bordered())
@@ -57,7 +55,7 @@ impl crate::App {
                     content_area,
                 );
             }
-            UnloadModelState::Error(err) => {
+            UnloadModelView::Error(err) => {
                 frame.render_widget(
                     Paragraph::new(format!("Error: {}", err))
                         .block(Block::bordered())
@@ -66,7 +64,7 @@ impl crate::App {
                     content_area,
                 );
             }
-            UnloadModelState::Success => {
+            UnloadModelView::Success => {
                 frame.render_widget(
                     Paragraph::new("Model unloaded successfully!")
                         .block(Block::bordered())
@@ -79,15 +77,15 @@ impl crate::App {
 
         // Footer
         let footer_text = match state {
-            UnloadModelState::Error(_) | UnloadModelState::Success => "Press Esc to go back",
-            UnloadModelState::Unloading => "Please wait...",
+            UnloadModelView::Error(_) | UnloadModelView::Success => "Press Esc to go back",
+            UnloadModelView::Unloading => "Please wait...",
         };
         frame.render_widget(Paragraph::new(footer_text).centered(), footer_area);
     }
 
-    pub(super) fn handle_unload_model_input(&mut self, key: KeyEvent, state: &UnloadModelState) {
+    pub(super) fn handle_unload_model_input(&mut self, key: KeyEvent, state: &UnloadModelView) {
         match state {
-            UnloadModelState::Error(_) | UnloadModelState::Success => {
+            UnloadModelView::Error(_) | UnloadModelView::Success => {
                 match (key.modifiers, key.code) {
                     (_, KeyCode::Esc) => {
                         self.view = crate::AppView::Menu;
@@ -96,7 +94,7 @@ impl crate::App {
                     _ => {}
                 }
             }
-            UnloadModelState::Unloading => {
+            UnloadModelView::Unloading => {
                 // only allow quitting
                 if matches!(
                     (key.modifiers, key.code),
@@ -112,19 +110,19 @@ impl crate::App {
     }
 
     /// Handle async operations for unload model state (called during tick).
-    pub(super) async fn tick_unload_model(&mut self, state: &UnloadModelState) {
-        if matches!(state, UnloadModelState::Unloading) {
-            match UnloadModelState::unload_model(&self.config.api_url()).await {
+    pub(super) async fn tick_unload_model(&mut self, view: &UnloadModelView) {
+        if matches!(view, UnloadModelView::Unloading) {
+            match UnloadModelView::unload_model(&self.config.api_url()).await {
                 Ok(_) => {
                     self.view =
-                        crate::AppView::Model(super::ModelView::Unload(UnloadModelState::Success));
+                        crate::AppView::Model(super::ModelView::Unload(UnloadModelView::Success));
                     if let Some(topology) = &mut self.topology {
                         topology.model = None;
                     };
                 }
                 Err(err) => {
                     self.view = crate::AppView::Model(super::ModelView::Unload(
-                        UnloadModelState::Error(err.to_string()),
+                        UnloadModelView::Error(err.to_string()),
                     ));
                 }
             }

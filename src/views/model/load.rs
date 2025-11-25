@@ -26,7 +26,7 @@ pub struct ShardLoadStatus {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum LoadModelState {
+pub enum LoadModelView {
     SelectingModel,
     PreparingTopology(String /* model name */),
     LoadingModel(String /* model name */),
@@ -47,22 +47,20 @@ pub struct LoadModelResponse {
     pub message: Option<String>,
 }
 
-/// This corresponds to the body of the `/v1/prepare_topology` API request,
-/// but is named `LoadModelRequest` here for clarity & consistency with the menu items.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct PrepareTopologyRequest {
-    pub model: String,
-    kv_bits: KVBits,
-    seq_len: u32,
-    max_batch_exp: u8,
-}
-
-impl LoadModelState {
-    /// Prepare topology by calling the API
+impl LoadModelView {
+    /// Prepare topology by calling the API.
     pub async fn prepare_topology(
         config: &Config,
         model: &str,
     ) -> color_eyre::Result<TopologyInfo> {
+        #[derive(Debug, Clone, Serialize, Deserialize)]
+        struct PrepareTopologyRequest {
+            pub model: String,
+            kv_bits: KVBits,
+            seq_len: u32,
+            max_batch_exp: u8,
+        }
+
         let url = format!("{}/v1/prepare_topology", config.api_url());
         let client = reqwest::Client::new();
         let request = PrepareTopologyRequest {
@@ -109,7 +107,7 @@ impl LoadModelState {
 }
 
 impl App {
-    pub(super) fn draw_load_model(&mut self, frame: &mut Frame, state: &LoadModelState) {
+    pub(super) fn draw_load_model(&mut self, frame: &mut Frame, view: &LoadModelView) {
         let area = frame.area();
 
         let vertical = Layout::vertical([
@@ -124,11 +122,11 @@ impl App {
         frame.render_widget(Paragraph::new(title), title_area);
 
         // Content
-        match state {
-            LoadModelState::SelectingModel => {
+        match view {
+            LoadModelView::SelectingModel => {
                 self.draw_model_selection(frame, content_area);
             }
-            LoadModelState::PreparingTopology(model) => {
+            LoadModelView::PreparingTopology(model) => {
                 frame.render_widget(
                     Paragraph::new(format!("Preparing topology for {}...", model))
                         .block(Block::bordered())
@@ -136,7 +134,7 @@ impl App {
                     content_area,
                 );
             }
-            LoadModelState::LoadingModel(model) => {
+            LoadModelView::LoadingModel(model) => {
                 frame.render_widget(
                     Paragraph::new(format!("Loading model {}...", model))
                         .block(Block::bordered())
@@ -144,7 +142,7 @@ impl App {
                     content_area,
                 );
             }
-            LoadModelState::Error(err) => {
+            LoadModelView::Error(err) => {
                 frame.render_widget(
                     Paragraph::new(format!("Error: {}", err))
                         .block(Block::bordered())
@@ -153,17 +151,17 @@ impl App {
                     content_area,
                 );
             }
-            LoadModelState::Success(response) => {
+            LoadModelView::Success(response) => {
                 self.draw_load_success(frame, content_area, response);
             }
         }
 
         // Footer
-        let footer_text = match state {
-            LoadModelState::SelectingModel => {
+        let footer_text = match view {
+            LoadModelView::SelectingModel => {
                 "Use ↑↓ to select model  |  Enter to load  |  Esc to go back"
             }
-            LoadModelState::Error(_) | LoadModelState::Success(_) => "Press Esc to go back",
+            LoadModelView::Error(_) | LoadModelView::Success(_) => "Press Esc to go back",
             _ => "Loading...",
         };
         frame.render_widget(Paragraph::new(footer_text).centered(), footer_area);
@@ -257,9 +255,9 @@ impl App {
         frame.render_widget(paragraph, area);
     }
 
-    pub(super) fn handle_load_model_input(&mut self, key: KeyEvent, state: &LoadModelState) {
+    pub(super) fn handle_load_model_input(&mut self, key: KeyEvent, state: &LoadModelView) {
         match state {
-            LoadModelState::SelectingModel => match (key.modifiers, key.code) {
+            LoadModelView::SelectingModel => match (key.modifiers, key.code) {
                 (_, KeyCode::Esc) => {
                     self.view = AppView::Menu;
                     self.selected_model = 0;
@@ -270,7 +268,7 @@ impl App {
                 (_, KeyCode::Enter) => self.start_model_load(),
                 _ => {}
             },
-            LoadModelState::Error(_) | LoadModelState::Success(_) => {
+            LoadModelView::Error(_) | LoadModelView::Success(_) => {
                 match (key.modifiers, key.code) {
                     (_, KeyCode::Esc) => {
                         self.view = AppView::Menu;
@@ -309,40 +307,40 @@ impl App {
 
     fn start_model_load(&mut self) {
         let model = self.available_models[self.selected_model].id.clone();
-        self.view = AppView::Model(super::ModelView::Load(LoadModelState::PreparingTopology(
+        self.view = AppView::Model(super::ModelView::Load(LoadModelView::PreparingTopology(
             model,
         )));
     }
 
     /// Handle async operations for load model state (called during tick).
-    pub(super) async fn tick_load_model(&mut self, state: &LoadModelState) {
+    pub(super) async fn tick_load_model(&mut self, state: &LoadModelView) {
         match state {
-            LoadModelState::PreparingTopology(model) => {
-                match LoadModelState::prepare_topology(&self.config, model).await {
+            LoadModelView::PreparingTopology(model) => {
+                match LoadModelView::prepare_topology(&self.config, model).await {
                     Ok(topology) => {
                         // move to loading model state and trigger load
                         self.view = AppView::Model(super::ModelView::Load(
-                            LoadModelState::LoadingModel(model.clone()),
+                            LoadModelView::LoadingModel(model.clone()),
                         ));
                         self.topology = Some(topology);
 
                         // load the model
-                        match LoadModelState::load_model(&self.config.api_url(), Some(&model)).await
+                        match LoadModelView::load_model(&self.config.api_url(), Some(&model)).await
                         {
                             Ok(load_response) => {
                                 self.view = AppView::Model(super::ModelView::Load(
-                                    LoadModelState::Success(load_response),
+                                    LoadModelView::Success(load_response),
                                 ));
                             }
                             Err(err) => {
                                 self.view = AppView::Model(super::ModelView::Load(
-                                    LoadModelState::Error(err.to_string()),
+                                    LoadModelView::Error(err.to_string()),
                                 ));
                             }
                         }
                     }
                     Err(err) => {
-                        self.view = AppView::Model(super::ModelView::Load(LoadModelState::Error(
+                        self.view = AppView::Model(super::ModelView::Load(LoadModelView::Error(
                             err.to_string(),
                         )));
                     }

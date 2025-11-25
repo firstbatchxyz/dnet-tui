@@ -1,4 +1,4 @@
-use crate::common::{DeviceProperties, DevicesResponse};
+use crate::common::DeviceProperties;
 use crate::{App, app::AppView};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{
@@ -8,9 +8,23 @@ use ratatui::{
     text::Line,
     widgets::{Block, Borders, List, ListItem, Paragraph},
 };
-
 use std::collections::HashMap;
+use std::time::{Duration, Instant};
 
+#[derive(Debug)]
+pub struct DevicesState {
+    /// Last time we refreshed devices.
+    pub refreshed_at: Instant,
+}
+
+impl Default for DevicesState {
+    fn default() -> Self {
+        Self {
+            // make this older to trigger immediate refresh
+            refreshed_at: Instant::now() - Duration::from_secs(10),
+        }
+    }
+}
 #[derive(Debug, Clone, PartialEq)]
 pub enum DevicesView {
     Loading,
@@ -18,29 +32,8 @@ pub enum DevicesView {
     Error(String),
 }
 
-impl DevicesView {
-    /// Fetch devices from the API
-    pub async fn fetch(api_url: &str) -> Result<HashMap<String, DeviceProperties>, String> {
-        let url = format!("{}/v1/devices", api_url);
-        let response = reqwest::get(&url)
-            .await
-            .map_err(|e| format!("Failed to connect to API: {}", e))?;
-
-        if !response.status().is_success() {
-            return Err(format!("API returned error: {}", response.status()));
-        }
-
-        let devices_response: DevicesResponse = response
-            .json()
-            .await
-            .map_err(|e| format!("Failed to parse response: {}", e))?;
-
-        Ok(devices_response.devices)
-    }
-}
-
 impl App {
-    pub(crate) fn draw_devices(&mut self, frame: &mut Frame, state: &DevicesView) {
+    pub(crate) fn draw_devices(&mut self, frame: &mut Frame, view: &DevicesView) {
         let area = frame.area();
 
         let vertical = Layout::vertical([
@@ -58,7 +51,7 @@ impl App {
         );
 
         // Content
-        match state {
+        match view {
             DevicesView::Loading => {
                 frame.render_widget(
                     Paragraph::new("Loading devices...")
@@ -173,7 +166,7 @@ impl App {
         frame.render_widget(list, area);
     }
 
-    pub(crate) fn handle_devices_input(&mut self, key: KeyEvent, _state: &DevicesView) {
+    pub(crate) fn handle_devices_input(&mut self, key: KeyEvent, _view: &DevicesView) {
         match (key.modifiers, key.code) {
             (_, KeyCode::Esc) => {
                 self.view = AppView::Menu;
@@ -184,14 +177,14 @@ impl App {
     }
 
     /// Handle async operations for devices state (called during tick).
-    pub(crate) async fn tick_devices(&mut self, state: &DevicesView) {
+    pub(crate) async fn tick_devices(&mut self, view: &DevicesView) {
         use std::time::Duration;
 
         let refresh_interval = Duration::from_secs(self.config.devices_refresh_interval);
-        let should_refresh = self.last_devices_refresh.elapsed() >= refresh_interval;
+        let should_refresh = self.state.devices.refreshed_at.elapsed() >= refresh_interval;
 
         // Refresh if loading or if refresh interval has elapsed
-        if matches!(state, DevicesView::Loading) || should_refresh {
+        if matches!(view, DevicesView::Loading) || should_refresh {
             self.load_devices().await;
         }
     }
@@ -200,15 +193,15 @@ impl App {
     async fn load_devices(&mut self) {
         use std::time::Instant;
 
-        match DevicesView::fetch(&self.config.api_url()).await {
+        match self.api.get_devices().await {
             Ok(devices) => {
                 self.view = AppView::Devices(DevicesView::Loaded(devices));
-                self.last_devices_refresh = Instant::now();
             }
             Err(err) => {
-                self.view = AppView::Devices(DevicesView::Error(err));
-                self.last_devices_refresh = Instant::now();
+                self.view = AppView::Devices(DevicesView::Error(err.to_string()));
             }
-        }
+        };
+
+        self.state.devices.refreshed_at = Instant::now();
     }
 }

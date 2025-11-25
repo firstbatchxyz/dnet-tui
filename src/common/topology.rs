@@ -24,29 +24,16 @@ pub struct TopologyInfo {
     pub kv_bits: KVBits,
 }
 
-impl TopologyInfo {
-    /// Fetch topology from the API
-    pub async fn fetch(api_url: &str) -> color_eyre::Result<TopologyInfo> {
-        let url = format!("{}/v1/topology", api_url);
-        let response = reqwest::get(&url).await?;
-
-        // Get the response text first, regardless of status
-        let status = response.status();
-        if !status.is_success() {
-            let text = response.text().await?;
-            Err(color_eyre::eyre::eyre!(
-                "API returned error: {} {}",
-                status.as_u16(),
-                text
-            ))
-        } else {
-            // Try to parse as successful topology response
-            response
-                .json()
-                .await
-                .map_err(|e| color_eyre::eyre::eyre!("Failed to parse topology response: {}", e))
-        }
-    }
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct ModelInfo {
+    /// Creation timestamp.
+    pub created: u128,
+    /// Repo ID, can be used to load the model from HuggingFace or other sources.
+    pub id: String,
+    /// The object type (OpenAI compatibility), usually "model".
+    pub object: String,
+    /// The owner of the model, usually `local` for dnet.
+    pub owned_by: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

@@ -7,5 +7,5 @@ pub use topology::*;
 mod shard;
 pub use shard::*;
 
-mod models;
-pub use models::*;
+mod api;
+pub use api::*;
