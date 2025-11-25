@@ -1,5 +1,5 @@
-use super::DeveloperState;
-use crate::AppState;
+use super::DeveloperView;
+use crate::AppView;
 use crate::common::{AssignmentInfo, DeviceProperties, DevicesResponse, ShardHealthResponse};
 use crate::config::{Config, KVBits};
 use crate::utils::ModelConfig;
@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum ManualAssignmentState {
+pub enum ManualAssignmentView {
     SelectingModel,
     FetchingShards(String /* model name */),
     AssigningLayers {
@@ -47,7 +47,7 @@ pub struct ShardInfo {
 }
 
 impl crate::App {
-    pub fn draw_manual_assignment(&mut self, frame: &mut Frame, state: &ManualAssignmentState) {
+    pub fn draw_manual_assignment(&mut self, frame: &mut Frame, state: &ManualAssignmentView) {
         let area = frame.area();
 
         let vertical = Layout::vertical([
@@ -65,10 +65,10 @@ impl crate::App {
         frame.render_widget(Paragraph::new(title), title_area);
 
         match state {
-            ManualAssignmentState::SelectingModel => {
+            ManualAssignmentView::SelectingModel => {
                 self.draw_model_selection_for_manual(frame, content_area);
             }
-            ManualAssignmentState::FetchingShards(_) => {
+            ManualAssignmentView::FetchingShards(_) => {
                 frame.render_widget(
                     Paragraph::new("Fetching available shards...")
                         .block(Block::default().borders(Borders::ALL))
@@ -76,7 +76,7 @@ impl crate::App {
                     content_area,
                 );
             }
-            ManualAssignmentState::AssigningLayers {
+            ManualAssignmentView::AssigningLayers {
                 model,
                 num_layers,
                 shards,
@@ -97,7 +97,7 @@ impl crate::App {
                     input_buffer,
                 );
             }
-            ManualAssignmentState::Submitting { model, .. } => {
+            ManualAssignmentView::Submitting { model, .. } => {
                 frame.render_widget(
                     Paragraph::new(format!("Submitting topology for {}...", model))
                         .block(Block::default().borders(Borders::ALL))
@@ -105,7 +105,7 @@ impl crate::App {
                     content_area,
                 );
             }
-            ManualAssignmentState::LoadingModel(model) => {
+            ManualAssignmentView::LoadingModel(model) => {
                 frame.render_widget(
                     Paragraph::new(format!(
                         "Loading model {}...\nThis may take a few moments.",
@@ -117,7 +117,7 @@ impl crate::App {
                     content_area,
                 );
             }
-            ManualAssignmentState::Success => {
+            ManualAssignmentView::Success => {
                 frame.render_widget(
                     Paragraph::new("Manual topology prepared and model loaded successfully!")
                         .block(Block::default().borders(Borders::ALL))
@@ -126,7 +126,7 @@ impl crate::App {
                     content_area,
                 );
             }
-            ManualAssignmentState::Error(err) => {
+            ManualAssignmentView::Error(err) => {
                 frame.render_widget(
                     Paragraph::new(format!("Error: {}", err))
                         .block(Block::default().borders(Borders::ALL))
@@ -139,22 +139,22 @@ impl crate::App {
 
         // Footer with context-specific help
         let footer_text = match state {
-            ManualAssignmentState::SelectingModel => {
+            ManualAssignmentView::SelectingModel => {
                 "↑↓: Select model | Enter: Continue | Esc: Back"
             }
-            ManualAssignmentState::AssigningLayers { input_mode, .. } => {
+            ManualAssignmentView::AssigningLayers { input_mode, .. } => {
                 if *input_mode {
                     "Type layers (e.g., 0,1,2 or 0-5) | Enter: Save | Esc: Cancel input"
                 } else {
                     "↑↓: Select shard | Enter: Assign layers | C: Complete | Esc: Back"
                 }
             }
-            ManualAssignmentState::Success | ManualAssignmentState::Error(_) => {
+            ManualAssignmentView::Success | ManualAssignmentView::Error(_) => {
                 "Press Esc to go back"
             }
-            ManualAssignmentState::LoadingModel(_) => "Loading model...",
-            ManualAssignmentState::FetchingShards(_) => "Fetching shards...",
-            ManualAssignmentState::Submitting { .. } => "Submitting topology...",
+            ManualAssignmentView::LoadingModel(_) => "Loading model...",
+            ManualAssignmentView::FetchingShards(_) => "Fetching shards...",
+            ManualAssignmentView::Submitting { .. } => "Submitting topology...",
         };
 
         frame.render_widget(
@@ -212,7 +212,7 @@ impl crate::App {
         .split(area);
 
         // Model info
-        let model_info = vec![Line::from(format!(
+        let model_info: Vec<Line<'_>> = vec![Line::from(format!(
             "Model: {} | Total Layers: {}",
             model, num_layers
         ))];
@@ -323,12 +323,12 @@ impl crate::App {
     pub(super) fn handle_manual_assignment_input(
         &mut self,
         key: KeyEvent,
-        state: &ManualAssignmentState,
+        state: &ManualAssignmentView,
     ) {
         match state {
-            ManualAssignmentState::SelectingModel => match (key.modifiers, key.code) {
+            ManualAssignmentView::SelectingModel => match (key.modifiers, key.code) {
                 (_, KeyCode::Esc) => {
-                    self.state = AppState::Developer(DeveloperState::Menu);
+                    self.view = AppView::Developer(DeveloperView::Menu);
                 }
                 (_, KeyCode::Up) => {
                     if self.selected_model > 0 {
@@ -342,13 +342,13 @@ impl crate::App {
                 }
                 (_, KeyCode::Enter) => {
                     let model = self.available_models[self.selected_model].id.clone();
-                    self.state = AppState::Developer(DeveloperState::ManualAssignment(
-                        ManualAssignmentState::FetchingShards(model),
+                    self.view = AppView::Developer(DeveloperView::ManualAssignment(
+                        ManualAssignmentView::FetchingShards(model),
                     ));
                 }
                 _ => {}
             },
-            ManualAssignmentState::AssigningLayers {
+            ManualAssignmentView::AssigningLayers {
                 model,
                 num_layers,
                 shards,
@@ -399,8 +399,8 @@ impl crate::App {
                     // Not in input mode
                     match (key.modifiers, key.code) {
                         (_, KeyCode::Esc) => {
-                            self.state = AppState::Developer(DeveloperState::ManualAssignment(
-                                ManualAssignmentState::SelectingModel,
+                            self.view = AppView::Developer(DeveloperView::ManualAssignment(
+                                ManualAssignmentView::SelectingModel,
                             ));
                             return;
                         }
@@ -427,8 +427,8 @@ impl crate::App {
                             let missing_layers = find_missing_layers(&all_layers, num_layers);
 
                             if missing_layers.is_empty() {
-                                self.state = AppState::Developer(DeveloperState::ManualAssignment(
-                                    ManualAssignmentState::Submitting {
+                                self.view = AppView::Developer(DeveloperView::ManualAssignment(
+                                    ManualAssignmentView::Submitting {
                                         model: model.clone(),
                                         shards: shards.clone(),
                                         assignments: assignments.clone(),
@@ -441,8 +441,8 @@ impl crate::App {
                     }
                 }
 
-                self.state = AppState::Developer(DeveloperState::ManualAssignment(
-                    ManualAssignmentState::AssigningLayers {
+                self.view = AppView::Developer(DeveloperView::ManualAssignment(
+                    ManualAssignmentView::AssigningLayers {
                         model,
                         num_layers,
                         shards,
@@ -453,12 +453,12 @@ impl crate::App {
                     },
                 ));
             }
-            ManualAssignmentState::LoadingModel(_) => {
+            ManualAssignmentView::LoadingModel(_) => {
                 // Loading is in progress, just wait
             }
-            ManualAssignmentState::Success | ManualAssignmentState::Error(_) => {
+            ManualAssignmentView::Success | ManualAssignmentView::Error(_) => {
                 if key.code == KeyCode::Esc {
-                    self.state = AppState::Developer(DeveloperState::Menu);
+                    self.view = AppView::Developer(DeveloperView::Menu);
                 }
             }
             _ => {}
@@ -584,7 +584,7 @@ fn determine_next_instances(assignments: &HashMap<String, Vec<u32>>) -> HashMap<
 }
 
 // API functions
-impl ManualAssignmentState {
+impl ManualAssignmentView {
     pub async fn fetch_shards_with_model(api_url: &str) -> color_eyre::Result<Vec<ShardInfo>> {
         // get devices from the /v1/devices endpoint
         let devices_url = format!("{}/v1/devices", api_url);
@@ -707,10 +707,10 @@ impl ManualAssignmentState {
 
 impl crate::App {
     /// Handle async operations for manual assignment state (called during tick).
-    pub(super) async fn tick_manual_assignment(&mut self, state: &ManualAssignmentState) {
+    pub(super) async fn tick_manual_assignment(&mut self, state: &ManualAssignmentView) {
         match state {
-            ManualAssignmentState::FetchingShards(model) => {
-                match ManualAssignmentState::fetch_shards_with_model(&self.config.api_url()).await {
+            ManualAssignmentView::FetchingShards(model) => {
+                match ManualAssignmentView::fetch_shards_with_model(&self.config.api_url()).await {
                     Ok(shards) => {
                         match ModelConfig::get_model_config(model)
                             .await
@@ -720,8 +720,8 @@ impl crate::App {
                                     .ok_or_eyre("Could not determine number of layers from config")
                             }) {
                             Ok(num_layers) => {
-                                self.state = AppState::Developer(DeveloperState::ManualAssignment(
-                                    ManualAssignmentState::AssigningLayers {
+                                self.view = AppView::Developer(DeveloperView::ManualAssignment(
+                                    ManualAssignmentView::AssigningLayers {
                                         model: model.clone(),
                                         num_layers: num_layers as u32,
                                         shards,
@@ -733,26 +733,26 @@ impl crate::App {
                                 ));
                             }
                             Err(err) => {
-                                self.state = AppState::Developer(DeveloperState::ManualAssignment(
-                                    ManualAssignmentState::Error(format!("{:#?}", err.to_string())),
+                                self.view = AppView::Developer(DeveloperView::ManualAssignment(
+                                    ManualAssignmentView::Error(format!("{:#?}", err.to_string())),
                                 ));
                             }
                         }
                     }
                     Err(err) => {
-                        self.state = AppState::Developer(DeveloperState::ManualAssignment(
-                            ManualAssignmentState::Error(format!("{:#?}", err.to_string())),
+                        self.view = AppView::Developer(DeveloperView::ManualAssignment(
+                            ManualAssignmentView::Error(format!("{:#?}", err.to_string())),
                         ));
                     }
                 }
             }
-            ManualAssignmentState::Submitting {
+            ManualAssignmentView::Submitting {
                 model,
                 shards,
                 assignments,
             } => {
                 let model_name = model.clone();
-                match ManualAssignmentState::submit_manual_topology(
+                match ManualAssignmentView::submit_manual_topology(
                     &self.config,
                     &model,
                     &shards,
@@ -762,25 +762,25 @@ impl crate::App {
                 {
                     Ok(_) => {
                         // Topology prepared, now load the model
-                        self.state = AppState::Developer(DeveloperState::ManualAssignment(
-                            ManualAssignmentState::LoadingModel(model_name),
+                        self.view = AppView::Developer(DeveloperView::ManualAssignment(
+                            ManualAssignmentView::LoadingModel(model_name),
                         ));
                     }
                     Err(err) => {
-                        self.state = AppState::Developer(DeveloperState::ManualAssignment(
-                            ManualAssignmentState::Error(format!("{:#?}", err.to_string())),
+                        self.view = AppView::Developer(DeveloperView::ManualAssignment(
+                            ManualAssignmentView::Error(format!("{:#?}", err.to_string())),
                         ));
                     }
                 }
             }
-            ManualAssignmentState::LoadingModel(model) => {
+            ManualAssignmentView::LoadingModel(model) => {
                 // Load the model using the existing LoadModelState functionality
                 match crate::model::LoadModelState::load_model(&self.config.api_url(), Some(&model))
                     .await
                 {
                     Ok(_response) => {
-                        self.state = AppState::Developer(DeveloperState::ManualAssignment(
-                            ManualAssignmentState::Success,
+                        self.view = AppView::Developer(DeveloperView::ManualAssignment(
+                            ManualAssignmentView::Success,
                         ));
                         // Fetch topology after successful manual assignment
                         if let Ok(topology) =
@@ -790,8 +790,8 @@ impl crate::App {
                         }
                     }
                     Err(err) => {
-                        self.state = AppState::Developer(DeveloperState::ManualAssignment(
-                            ManualAssignmentState::Error(format!("Failed to load model: {}", err)),
+                        self.view = AppView::Developer(DeveloperView::ManualAssignment(
+                            ManualAssignmentView::Error(format!("Failed to load model: {}", err)),
                         ));
                     }
                 }

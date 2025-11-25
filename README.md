@@ -7,7 +7,7 @@ A terminal user interface (TUI) application built with Rust.
 ### Using Cargo
 
 ```sh
-cargo install  https://github.com/firstbatchxyz/dnet-tui.git
+cargo install https://github.com/firstbatchxyz/dnet-tui.git
 ```
 
 ### From Source
@@ -28,7 +28,9 @@ dnet-tui
 
 ## Contributions
 
-The code is structured so that all "windows" are thought of as their own modules, and they implement the required methods via `impl App` and `impl AppState` within their own file, with respect to visibility. Within each `impl App` we expect the following methods:
+The code is structured so that all "windows" are thought of as their own modules, and they implement the required methods via `impl App` within their own file, with respect to visibility. Each window should also have a `*View` enum (for the sub-windows if required) and a `*State` struct that is an attribute of `AppState`.
+
+Within each `impl App` we expect the following methods:
 
 - `draw_*` to handle drawing on screen (called via `terminal.draw`)
 - `tick_*` to handle ticks (effect within the running loop)

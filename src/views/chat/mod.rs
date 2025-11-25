@@ -5,7 +5,7 @@ use utils::*;
 mod styles;
 use styles::*;
 
-use crate::AppState;
+use crate::AppView;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{
     Frame,
@@ -40,7 +40,7 @@ pub struct ChatActiveState {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum ChatState {
+pub enum ChatView {
     Active,
     Error(String),
 }
@@ -73,7 +73,7 @@ impl ChatActiveState {
 }
 
 impl crate::App {
-    pub fn draw_chat(&mut self, frame: &mut Frame, state: &ChatState) {
+    pub fn draw_chat(&mut self, frame: &mut Frame, state: &ChatView) {
         let area = frame.area();
 
         let vertical = Layout::vertical([
@@ -86,7 +86,7 @@ impl crate::App {
 
         // Title with max tokens info
         let title = match state {
-            ChatState::Active => Line::from(format!(
+            ChatView::Active => Line::from(format!(
                 "Chatting with {} (max tokens: {})",
                 self.topology
                     .as_ref()
@@ -105,7 +105,7 @@ impl crate::App {
         );
 
         match state {
-            ChatState::Active => {
+            ChatView::Active => {
                 // Draw messages
                 self.draw_chat_messages(frame, messages_area);
 
@@ -125,7 +125,7 @@ impl crate::App {
                     footer_area,
                 );
             }
-            ChatState::Error(err) => {
+            ChatView::Error(err) => {
                 frame.render_widget(
                     Paragraph::new(format!("Error: {}", err))
                         .block(Block::default().borders(Borders::ALL))
@@ -239,14 +239,14 @@ impl crate::App {
         }
     }
 
-    pub fn handle_chat_input(&mut self, key: KeyEvent, state: &ChatState) {
-        if let ChatState::Active = state {
+    pub fn handle_chat_input(&mut self, key: KeyEvent, state: &ChatView) {
+        if let ChatView::Active = state {
             if self.chat.is_generating {
                 match (key.modifiers, key.code) {
                     (_, KeyCode::Esc) => {
                         // we allow to exit chat even when generating
                         // the stream may continue in the background
-                        self.state = AppState::Menu;
+                        self.view = AppView::Menu;
                         return;
                     }
                     // scroll up (offset shrinks)
@@ -281,7 +281,7 @@ impl crate::App {
                         self.chat.is_generating = false;
                         self.chat.current_response.clear();
                         self.chat.stream_rx = None; // clear the stream
-                        self.state = AppState::Menu;
+                        self.view = AppView::Menu;
                         return;
                     }
                     _ => {}
@@ -289,7 +289,7 @@ impl crate::App {
             } else {
                 match (key.modifiers.clone(), key.code.clone()) {
                     (_, KeyCode::Esc) => {
-                        self.state = AppState::Menu;
+                        self.view = AppView::Menu;
                         return; // early return to prevent state from being overwritten
                     }
                     // scroll up (offset shrinks)
@@ -339,9 +339,9 @@ impl crate::App {
                     }
                 }
             }
-        } else if let ChatState::Error(_) = state {
+        } else if let ChatView::Error(_) = state {
             if key.code == KeyCode::Esc {
-                self.state = AppState::Menu;
+                self.view = AppView::Menu;
             }
         }
     }
@@ -368,7 +368,7 @@ fn clean_model_tokens(content: &str) -> String {
 }
 
 // API functions for chat
-impl ChatState {
+impl ChatView {
     pub async fn send_message(
         api_url: &str,
         messages: &VecDeque<ChatMessage>,
@@ -486,12 +486,12 @@ async fn stream_chat_response(
 
 impl crate::App {
     /// Handle async operations for chat state (called during tick).
-    pub(crate) async fn tick_chat(&mut self, state: &ChatState) {
+    pub(crate) async fn tick_chat(&mut self, state: &ChatView) {
         // Handle pending chat message
         if let Some(_message) = self.pending_chat_message.take() {
-            if let ChatState::Active = state {
+            if let ChatView::Active = state {
                 let Some(model) = self.topology.as_ref().and_then(|t| t.model.clone()) else {
-                    self.state = AppState::Chat(ChatState::Error(
+                    self.view = AppView::Chat(ChatView::Error(
                         // we dont expect to get there at all without a model,
                         // but it still shall be handled
                         "No model configured in topology.".to_string(),
@@ -499,7 +499,7 @@ impl crate::App {
                     return;
                 };
 
-                match ChatState::send_message(
+                match ChatView::send_message(
                     &self.config.api_url(),
                     &self.chat.messages,
                     &model,
@@ -512,7 +512,7 @@ impl crate::App {
                         self.chat.stream_rx = Some(rx);
                     }
                     Err(err) => {
-                        self.state = AppState::Chat(ChatState::Error(err));
+                        self.view = AppView::Chat(ChatView::Error(err));
                     }
                 }
             }
@@ -521,7 +521,7 @@ impl crate::App {
         // Process chat stream - but only if we're still in chat state
         if let Some(mut rx) = self.chat.stream_rx.take() {
             // Check if we're still in chat state
-            if !matches!(self.state, AppState::Chat(_)) {
+            if !matches!(self.view, AppView::Chat(_)) {
                 // We've exited chat, don't process the stream
                 // FIXME: ??
                 self.chat.stream_rx = None;
@@ -531,7 +531,7 @@ impl crate::App {
 
                 // Try to receive messages without blocking
                 while let Ok(chunk) = rx.try_recv() {
-                    if let AppState::Chat(ChatState::Active) = &mut self.state {
+                    if let AppView::Chat(ChatView::Active) = &mut self.view {
                         if chunk == "DONE" {
                             // Finalize the response
                             if !self.chat.current_response.is_empty() {
@@ -562,7 +562,7 @@ impl crate::App {
 
                 // Handle state changes after processing
                 if let Some(error) = new_error_state {
-                    self.state = AppState::Chat(ChatState::Error(error));
+                    self.view = AppView::Chat(ChatView::Error(error));
                 } else if !should_clear_rx {
                     // put the receiver back if we're not done
                     self.chat.stream_rx = Some(rx);

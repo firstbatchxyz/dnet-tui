@@ -1,24 +1,31 @@
-use crate::chat::{ChatActiveState, ChatState};
+use crate::chat::{ChatActiveState, ChatView};
 use crate::common::{ModelInfo, TopologyInfo};
 use crate::config::Config;
-use crate::developer::DeveloperState;
-use crate::devices::DevicesState;
-use crate::model::ModelState;
-use crate::settings::{SettingsField, SettingsStatus};
-use crate::topology::TopologyState;
+use crate::developer::DeveloperView;
+use crate::devices::DevicesView;
+use crate::menu::MenuState;
+use crate::model::ModelView;
+use crate::settings::SettingsState;
+use crate::topology::TopologyView;
 use color_eyre::eyre::Result;
 use crossterm::event::EventStream;
 use std::time::{Duration, Instant};
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum AppState {
+pub enum AppView {
     Menu,
     Settings,
-    Devices(DevicesState),
-    Topology(TopologyState),
-    Model(ModelState),
-    Developer(DeveloperState),
-    Chat(ChatState),
+    Devices(DevicesView),
+    Topology(TopologyView),
+    Model(ModelView),
+    Developer(DeveloperView),
+    Chat(ChatView),
+}
+
+#[derive(Default, Debug, Clone)]
+pub struct AppState {
+    pub settings: SettingsState,
+    pub menu: MenuState,
 }
 
 /// 60 FPS = 1000ms / 60 = 16.67ms per frame
@@ -26,6 +33,12 @@ const FPS_RATE: Duration = Duration::from_millis(1000 / 60);
 
 #[derive(Debug)]
 pub struct App {
+    /// Active application view.
+    pub view: AppView,
+    /// Application state.
+    ///
+    /// This is shared among all views.
+    pub state: AppState,
     /// Is the application running?
     pub is_running: bool,
     /// Event stream.
@@ -33,15 +46,9 @@ pub struct App {
     /// Configuration.
     pub config: Config,
     /// Temporary config for editing.
+    /// TODO: move to settings
     pub temp_config: Config,
-    /// Current application state.
-    pub state: AppState,
-    /// Selected menu item index.
-    pub selected_menu: usize,
-    /// Selected settings field.
-    pub settings_selected_field: SettingsField,
-    /// Status message for the settings view.
-    pub settings_status: SettingsStatus,
+
     /// Selected device index in topology view.
     pub selected_device: usize,
     /// Selected model index in load model view.
@@ -50,8 +57,7 @@ pub struct App {
     pub developer_menu_index: usize,
     /// Input buffer for editing.
     pub input_buffer: String,
-    /// Whether we're currently editing a settings field.
-    pub is_editing_setting: bool,
+
     /// Status message.
     pub status_message: String,
     /// Animation start time for sliding text.
@@ -73,25 +79,22 @@ pub struct App {
 impl App {
     /// Construct a new instance of [`App`].
     pub fn new() -> Result<Self> {
-        Self::new_with_state(AppState::Menu)
+        Self::new_with_state(AppView::Menu)
     }
 
-    pub fn new_with_state(state: AppState) -> Result<Self> {
+    pub fn new_with_state(state: AppView) -> Result<Self> {
         let config = Config::load()?;
         Ok(Self {
             is_running: false,
             event_stream: EventStream::new(),
             temp_config: config.clone(),
             config,
-            state,
-            settings_status: SettingsStatus::None,
-            settings_selected_field: SettingsField::Host,
-            selected_menu: 0,
+            view: state,
+            state: AppState::default(),
             selected_device: 0,
             selected_model: 0,
             developer_menu_index: 0,
             input_buffer: String::new(),
-            is_editing_setting: false,
             status_message: String::new(),
             animation_start: Instant::now(),
             // make this older to trigger immediate check
@@ -117,23 +120,23 @@ impl App {
             terminal.draw(|frame| self.draw(frame))?;
 
             // process ticks
-            match self.state.clone() {
-                AppState::Menu => {
+            match self.view.clone() {
+                AppView::Menu => {
                     self.tick_menu().await;
                 }
-                AppState::Devices(devices_state) => {
+                AppView::Devices(devices_state) => {
                     self.tick_devices(&devices_state).await;
                 }
-                AppState::Topology(topology_state) => {
+                AppView::Topology(topology_state) => {
                     self.tick_topology(&topology_state).await;
                 }
-                AppState::Model(model_state) => {
+                AppView::Model(model_state) => {
                     self.tick_model(&model_state).await;
                 }
-                AppState::Developer(developer_state) => {
+                AppView::Developer(developer_state) => {
                     self.tick_developer(&developer_state).await;
                 }
-                AppState::Chat(chat_state) => {
+                AppView::Chat(chat_state) => {
                     self.tick_chat(&chat_state).await;
                 }
                 _ => {
@@ -157,14 +160,14 @@ impl App {
 
     /// Renders the user interface.
     fn draw(&mut self, frame: &mut ratatui::Frame) {
-        match self.state.clone() {
-            AppState::Menu => self.draw_menu(frame),
-            AppState::Settings => self.draw_settings(frame),
-            AppState::Devices(state) => self.draw_devices(frame, &state),
-            AppState::Topology(state) => self.draw_topology(frame, &state),
-            AppState::Model(state) => self.draw_model(frame, &state),
-            AppState::Developer(state) => self.draw_developer(frame, &state),
-            AppState::Chat(state) => self.draw_chat(frame, &state),
+        match self.view.clone() {
+            AppView::Menu => self.draw_menu(frame),
+            AppView::Settings => self.draw_settings(frame),
+            AppView::Devices(state) => self.draw_devices(frame, &state),
+            AppView::Topology(state) => self.draw_topology(frame, &state),
+            AppView::Model(state) => self.draw_model(frame, &state),
+            AppView::Developer(state) => self.draw_developer(frame, &state),
+            AppView::Chat(state) => self.draw_chat(frame, &state),
         }
     }
 
@@ -176,14 +179,14 @@ impl App {
         let event = self.event_stream.next().fuse().await;
         match event {
             Some(Ok(evt)) => match evt {
-                Event::Key(key) if key.kind == KeyEventKind::Press => match &self.state.clone() {
-                    AppState::Menu => self.handle_menu_input(key),
-                    AppState::Settings => self.handle_settings_input(key),
-                    AppState::Devices(state) => self.handle_devices_input(key, state),
-                    AppState::Topology(state) => self.handle_topology_input(key, state),
-                    AppState::Model(state) => self.handle_model_input(key, state),
-                    AppState::Developer(state) => self.handle_developer_input(key, state),
-                    AppState::Chat(state) => self.handle_chat_input(key, state),
+                Event::Key(key) if key.kind == KeyEventKind::Press => match &self.view.clone() {
+                    AppView::Menu => self.handle_menu_input(key),
+                    AppView::Settings => self.handle_settings_input(key),
+                    AppView::Devices(state) => self.handle_devices_input(key, state),
+                    AppView::Topology(state) => self.handle_topology_input(key, state),
+                    AppView::Model(state) => self.handle_model_input(key, state),
+                    AppView::Developer(state) => self.handle_developer_input(key, state),
+                    AppView::Chat(state) => self.handle_chat_input(key, state),
                 },
                 Event::Mouse(_) => {} // TODO: do we want mouse events?
                 Event::Resize(_, _) => {}

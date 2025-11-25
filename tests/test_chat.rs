@@ -1,6 +1,6 @@
 use dnet_tui::chat::ChatActiveState;
-use dnet_tui::views::chat::{ChatMessage, ChatState};
-use dnet_tui::{App, AppState};
+use dnet_tui::views::chat::{ChatMessage, ChatView};
+use dnet_tui::{App, AppView};
 
 // cargo test --package dnet-tui --test test_chat -- test_chat_screen --exact --ignored
 #[tokio::test]
@@ -47,7 +47,7 @@ Serve hot, straight from the pan, with plenty of fresh bread (preferably simit, 
 Would you like me to show a one-pan minimalistic "village-style" version (just eggs, tomatoes, and olive oil) or a restaurant-style version with cheese and sucuk next?
 "#));
 
-    let mut app = App::new_with_state(AppState::Chat(ChatState::Active))?;
+    let mut app = App::new_with_state(AppView::Chat(ChatView::Active))?;
     app.chat = chat;
     let result = app.run(terminal).await;
     ratatui::restore();

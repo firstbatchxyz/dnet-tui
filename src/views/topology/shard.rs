@@ -1,5 +1,5 @@
 use crate::common::ShardHealthResponse;
-use crate::{App, app::AppState, views::topology::TopologyState};
+use crate::{App, app::AppView, views::topology::TopologyView};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{
     Frame,
@@ -203,8 +203,8 @@ impl App {
         match (key.modifiers, key.code) {
             (_, KeyCode::Esc) => {
                 // go back to topology view
-                if let AppState::Topology(TopologyState::Shard(_, _)) = &self.state {
-                    self.state = AppState::Topology(super::TopologyState::Ring(
+                if let AppView::Topology(TopologyView::Shard(_, _)) = &self.view {
+                    self.view = AppView::Topology(super::TopologyView::Ring(
                         super::TopologyRingState::Loaded,
                     ));
                 }
@@ -225,26 +225,26 @@ impl App {
 
                     match ShardViewState::fetch(&device_ip, http_port).await {
                         Ok(health) => {
-                            self.state = AppState::Topology(TopologyState::Shard(
+                            self.view = AppView::Topology(TopologyView::Shard(
                                 device.to_string(),
                                 ShardViewState::Loaded(health),
                             ));
                         }
                         Err(err) => {
-                            self.state = AppState::Topology(TopologyState::Shard(
+                            self.view = AppView::Topology(TopologyView::Shard(
                                 device.to_string(),
                                 ShardViewState::Error(err),
                             ));
                         }
                     }
                 } else {
-                    self.state = AppState::Topology(TopologyState::Shard(
+                    self.view = AppView::Topology(TopologyView::Shard(
                         device.to_string(),
                         ShardViewState::Error(format!("Device '{}' not found in topology", device)),
                     ));
                 }
             } else {
-                self.state = AppState::Topology(TopologyState::Shard(
+                self.view = AppView::Topology(TopologyView::Shard(
                     device.to_string(),
                     ShardViewState::Error("No topology information available".to_string()),
                 ));

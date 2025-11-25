@@ -1,8 +1,8 @@
-use crate::developer::DeveloperState;
+use crate::developer::DeveloperView;
 use crate::model::{LoadModelState, UnloadModelState};
-use crate::topology::TopologyState;
+use crate::topology::TopologyView;
 use crate::views::topology::TopologyRingState;
-use crate::{App, AppState};
+use crate::{App, AppView};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{
     Frame,
@@ -11,6 +11,12 @@ use ratatui::{
     text::Line,
     widgets::{List, ListItem, Paragraph},
 };
+
+#[derive(Default, Debug, Clone)]
+pub struct MenuState {
+    /// Selected menu item index.
+    pub selection_idx: usize,
+}
 
 /// A menu item.
 ///
@@ -31,6 +37,17 @@ pub enum MenuItem {
 }
 
 impl MenuItem {
+    pub const ALL: [MenuItem; 8] = [
+        MenuItem::Chat,
+        MenuItem::ViewDevices,
+        MenuItem::ViewTopology,
+        MenuItem::LoadModel,
+        MenuItem::UnloadModel,
+        MenuItem::Settings,
+        MenuItem::Developer,
+        MenuItem::Exit,
+    ];
+
     /// Determines if the menu item should be disabled based on current app state.
     pub fn is_disabled(
         &self,
@@ -54,19 +71,6 @@ impl MenuItem {
             self.label(),
             self.description(model_loaded, topology_loaded, models_available)
         )
-    }
-
-    pub fn all() -> Vec<MenuItem> {
-        vec![
-            MenuItem::Chat,
-            MenuItem::ViewDevices,
-            MenuItem::ViewTopology,
-            MenuItem::LoadModel,
-            MenuItem::UnloadModel,
-            MenuItem::Settings,
-            MenuItem::Developer,
-            MenuItem::Exit,
-        ]
     }
 
     pub fn label(&self) -> &str {
@@ -128,12 +132,12 @@ impl MenuItem {
 
     /// The total height of the menu when fully rendered.
     pub fn total_height() -> u16 {
-        Self::all().len() as u16
+        Self::ALL.len() as u16
     }
 
     /// The total width of the menu when fully rendered.
     pub fn total_width(model_loaded: bool, topology_loaded: bool, models_available: bool) -> u16 {
-        Self::all()
+        Self::ALL
             .iter()
             .map(|item| {
                 item.fmt(model_loaded, topology_loaded, models_available)
@@ -203,14 +207,14 @@ impl App {
         let is_model_loaded = self.topology.as_ref().is_some_and(|t| t.model.is_some());
 
         // Menu items
-        let menu_items: Vec<ListItem> = MenuItem::all()
+        let menu_items: Vec<ListItem> = MenuItem::ALL
             .iter()
             .enumerate()
             .map(|(i, item)| {
                 // decide style based on selection and availability
                 let is_disabled =
                     item.is_disabled(is_model_loaded, is_topology_loaded, models_available);
-                let is_selected = i == self.selected_menu;
+                let is_selected = i == self.state.menu.selection_idx;
 
                 let style = match (is_selected, is_disabled) {
                     // selected & disable
@@ -280,34 +284,34 @@ impl App {
     }
 
     fn menu_up(&mut self) {
-        if self.selected_menu > 0 {
-            self.selected_menu -= 1;
+        if self.state.menu.selection_idx > 0 {
+            self.state.menu.selection_idx -= 1;
         }
     }
 
     fn menu_down(&mut self) {
-        let menu_count = MenuItem::all().len();
-        if self.selected_menu < menu_count - 1 {
-            self.selected_menu += 1;
+        let menu_count = MenuItem::ALL.len();
+        if self.state.menu.selection_idx < menu_count - 1 {
+            self.state.menu.selection_idx += 1;
         }
     }
 
     fn select_menu_item(&mut self) {
-        match MenuItem::all()[self.selected_menu] {
+        match MenuItem::ALL[self.state.menu.selection_idx] {
             MenuItem::Chat => {
                 // only allow entering chat if model is loaded
                 if self.topology.as_ref().is_some_and(|t| t.model.is_some()) {
-                    self.state = AppState::Chat(crate::chat::ChatState::Active);
+                    self.view = AppView::Chat(crate::chat::ChatView::Active);
                 } else {
                     // if topology not loaded, do nothing (item is disabled)
                 }
             }
             MenuItem::ViewDevices => {
-                self.state = AppState::Devices(crate::devices::DevicesState::Loading);
+                self.view = AppView::Devices(crate::devices::DevicesView::Loading);
             }
             MenuItem::ViewTopology => {
                 if self.topology.is_some() {
-                    self.state = AppState::Topology(TopologyState::Ring(TopologyRingState::Loaded));
+                    self.view = AppView::Topology(TopologyView::Ring(TopologyRingState::Loaded));
                     self.selected_device = 0;
                 } else {
                     // if topology not loaded, do nothing (item is disabled)
@@ -318,7 +322,7 @@ impl App {
                 if self.topology.as_ref().is_some_and(|t| t.model.is_some()) {
                     // if model already loaded, do nothing (item is disabled)
                 } else {
-                    self.state = AppState::Model(super::model::ModelState::Load(
+                    self.view = AppView::Model(super::model::ModelView::Load(
                         LoadModelState::SelectingModel,
                     ));
                     self.selected_model = 0;
@@ -327,7 +331,7 @@ impl App {
             }
             MenuItem::UnloadModel => {
                 if self.topology.is_some() {
-                    self.state = AppState::Model(super::model::ModelState::Unload(
+                    self.view = AppView::Model(super::model::ModelView::Unload(
                         UnloadModelState::Unloading,
                     ));
                     self.status_message.clear();
@@ -336,12 +340,12 @@ impl App {
                 }
             }
             MenuItem::Settings => {
-                self.state = AppState::Settings;
+                self.view = AppView::Settings;
                 self.temp_config = self.config.clone();
                 self.status_message.clear();
             }
             MenuItem::Developer => {
-                self.state = AppState::Developer(DeveloperState::Menu);
+                self.view = AppView::Developer(DeveloperView::Menu);
                 self.developer_menu_index = 0;
             }
             MenuItem::Exit => self.quit(),

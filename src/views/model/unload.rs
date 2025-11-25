@@ -90,7 +90,7 @@ impl crate::App {
             UnloadModelState::Error(_) | UnloadModelState::Success => {
                 match (key.modifiers, key.code) {
                     (_, KeyCode::Esc) => {
-                        self.state = crate::AppState::Menu;
+                        self.view = crate::AppView::Menu;
                     }
                     (KeyModifiers::CONTROL, KeyCode::Char('c') | KeyCode::Char('C')) => self.quit(),
                     _ => {}
@@ -116,15 +116,14 @@ impl crate::App {
         if matches!(state, UnloadModelState::Unloading) {
             match UnloadModelState::unload_model(&self.config.api_url()).await {
                 Ok(_) => {
-                    self.state = crate::AppState::Model(super::ModelState::Unload(
-                        UnloadModelState::Success,
-                    ));
+                    self.view =
+                        crate::AppView::Model(super::ModelView::Unload(UnloadModelState::Success));
                     if let Some(topology) = &mut self.topology {
                         topology.model = None;
                     };
                 }
                 Err(err) => {
-                    self.state = crate::AppState::Model(super::ModelState::Unload(
+                    self.view = crate::AppView::Model(super::ModelView::Unload(
                         UnloadModelState::Error(err.to_string()),
                     ));
                 }

@@ -1,5 +1,5 @@
 use crate::common::{DeviceProperties, DevicesResponse};
-use crate::{App, app::AppState};
+use crate::{App, app::AppView};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{
     Frame,
@@ -12,13 +12,13 @@ use ratatui::{
 use std::collections::HashMap;
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum DevicesState {
+pub enum DevicesView {
     Loading,
     Loaded(HashMap<String, DeviceProperties>),
     Error(String),
 }
 
-impl DevicesState {
+impl DevicesView {
     /// Fetch devices from the API
     pub async fn fetch(api_url: &str) -> Result<HashMap<String, DeviceProperties>, String> {
         let url = format!("{}/v1/devices", api_url);
@@ -40,7 +40,7 @@ impl DevicesState {
 }
 
 impl App {
-    pub(crate) fn draw_devices(&mut self, frame: &mut Frame, state: &DevicesState) {
+    pub(crate) fn draw_devices(&mut self, frame: &mut Frame, state: &DevicesView) {
         let area = frame.area();
 
         let vertical = Layout::vertical([
@@ -59,7 +59,7 @@ impl App {
 
         // Content
         match state {
-            DevicesState::Loading => {
+            DevicesView::Loading => {
                 frame.render_widget(
                     Paragraph::new("Loading devices...")
                         .block(Block::bordered())
@@ -67,7 +67,7 @@ impl App {
                     content_area,
                 );
             }
-            DevicesState::Error(err) => {
+            DevicesView::Error(err) => {
                 let error_text = vec![
                     Line::from(""),
                     Line::from("Error Loading Devices").bold().red(),
@@ -84,7 +84,7 @@ impl App {
                     content_area,
                 );
             }
-            DevicesState::Loaded(devices) => {
+            DevicesView::Loaded(devices) => {
                 if devices.is_empty() {
                     frame.render_widget(
                         Paragraph::new("No devices found")
@@ -173,10 +173,10 @@ impl App {
         frame.render_widget(list, area);
     }
 
-    pub(crate) fn handle_devices_input(&mut self, key: KeyEvent, _state: &DevicesState) {
+    pub(crate) fn handle_devices_input(&mut self, key: KeyEvent, _state: &DevicesView) {
         match (key.modifiers, key.code) {
             (_, KeyCode::Esc) => {
-                self.state = AppState::Menu;
+                self.view = AppView::Menu;
             }
             (KeyModifiers::CONTROL, KeyCode::Char('c') | KeyCode::Char('C')) => self.quit(),
             _ => {}
@@ -184,14 +184,14 @@ impl App {
     }
 
     /// Handle async operations for devices state (called during tick).
-    pub(crate) async fn tick_devices(&mut self, state: &DevicesState) {
+    pub(crate) async fn tick_devices(&mut self, state: &DevicesView) {
         use std::time::Duration;
 
         let refresh_interval = Duration::from_secs(self.config.devices_refresh_interval);
         let should_refresh = self.last_devices_refresh.elapsed() >= refresh_interval;
 
         // Refresh if loading or if refresh interval has elapsed
-        if matches!(state, DevicesState::Loading) || should_refresh {
+        if matches!(state, DevicesView::Loading) || should_refresh {
             self.load_devices().await;
         }
     }
@@ -200,13 +200,13 @@ impl App {
     async fn load_devices(&mut self) {
         use std::time::Instant;
 
-        match DevicesState::fetch(&self.config.api_url()).await {
+        match DevicesView::fetch(&self.config.api_url()).await {
             Ok(devices) => {
-                self.state = AppState::Devices(DevicesState::Loaded(devices));
+                self.view = AppView::Devices(DevicesView::Loaded(devices));
                 self.last_devices_refresh = Instant::now();
             }
             Err(err) => {
-                self.state = AppState::Devices(DevicesState::Error(err));
+                self.view = AppView::Devices(DevicesView::Error(err));
                 self.last_devices_refresh = Instant::now();
             }
         }

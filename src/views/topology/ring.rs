@@ -1,5 +1,5 @@
 use crate::common::TopologyInfo;
-use crate::{app::AppState, utils::get_sliding_text};
+use crate::{app::AppView, utils::get_sliding_text};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{
     Frame,
@@ -352,7 +352,7 @@ impl crate::App {
     pub(super) fn handle_topology_ring_input(&mut self, key: KeyEvent) {
         match (key.modifiers, key.code) {
             (_, KeyCode::Esc) => {
-                self.state = AppState::Menu;
+                self.view = AppView::Menu;
                 self.selected_device = 0; // Reset selection
             }
             (KeyModifiers::CONTROL, KeyCode::Char('c') | KeyCode::Char('C')) => self.quit(),
@@ -364,8 +364,7 @@ impl crate::App {
     }
 
     fn topology_device_up(&mut self) {
-        if let AppState::Topology(super::TopologyState::Ring(TopologyRingState::Loaded)) =
-            &self.state
+        if let AppView::Topology(super::TopologyView::Ring(TopologyRingState::Loaded)) = &self.view
         {
             if let Some(topology) = &self.topology {
                 let device_count = topology.devices.len();
@@ -382,8 +381,7 @@ impl crate::App {
     }
 
     fn topology_device_down(&mut self) {
-        if let AppState::Topology(super::TopologyState::Ring(TopologyRingState::Loaded)) =
-            &self.state
+        if let AppView::Topology(super::TopologyView::Ring(TopologyRingState::Loaded)) = &self.view
         {
             if let Some(topology) = &self.topology {
                 let device_count = topology.devices.len();
@@ -396,12 +394,11 @@ impl crate::App {
     }
 
     fn open_shard_interaction(&mut self) {
-        if let AppState::Topology(super::TopologyState::Ring(TopologyRingState::Loaded)) =
-            &self.state
+        if let AppView::Topology(super::TopologyView::Ring(TopologyRingState::Loaded)) = &self.view
         {
             if let Some(topology) = &self.topology {
                 if let Some(device) = topology.devices.get(self.selected_device) {
-                    self.state = AppState::Topology(super::TopologyState::Shard(
+                    self.view = AppView::Topology(super::TopologyView::Shard(
                         device.instance.clone(),
                         super::ShardViewState::Loading,
                     ));
@@ -422,8 +419,8 @@ impl crate::App {
         match TopologyInfo::fetch(&self.config.api_url()).await {
             Ok(topology) => {
                 self.topology = Some(topology);
-                self.state =
-                    AppState::Topology(super::TopologyState::Ring(TopologyRingState::Loaded));
+                self.view =
+                    AppView::Topology(super::TopologyView::Ring(TopologyRingState::Loaded));
             }
             Err(err) => {
                 // TODO: handle this better
@@ -449,7 +446,7 @@ impl crate::App {
                     format!("Error: {}", error_msg)
                 };
 
-                self.state = AppState::Topology(super::TopologyState::Ring(
+                self.view = AppView::Topology(super::TopologyView::Ring(
                     TopologyRingState::Error(friendly_msg),
                 ));
             }

@@ -1,6 +1,6 @@
 use crate::common::TopologyInfo;
 use crate::config::{Config, KVBits};
-use crate::{App, AppState};
+use crate::{App, AppView};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{
     Frame,
@@ -261,7 +261,7 @@ impl App {
         match state {
             LoadModelState::SelectingModel => match (key.modifiers, key.code) {
                 (_, KeyCode::Esc) => {
-                    self.state = AppState::Menu;
+                    self.view = AppView::Menu;
                     self.selected_model = 0;
                 }
                 (KeyModifiers::CONTROL, KeyCode::Char('c') | KeyCode::Char('C')) => self.quit(),
@@ -273,7 +273,7 @@ impl App {
             LoadModelState::Error(_) | LoadModelState::Success(_) => {
                 match (key.modifiers, key.code) {
                     (_, KeyCode::Esc) => {
-                        self.state = AppState::Menu;
+                        self.view = AppView::Menu;
                         self.selected_model = 0;
                     }
                     (KeyModifiers::CONTROL, KeyCode::Char('c') | KeyCode::Char('C')) => self.quit(),
@@ -309,7 +309,7 @@ impl App {
 
     fn start_model_load(&mut self) {
         let model = self.available_models[self.selected_model].id.clone();
-        self.state = AppState::Model(super::ModelState::Load(LoadModelState::PreparingTopology(
+        self.view = AppView::Model(super::ModelView::Load(LoadModelState::PreparingTopology(
             model,
         )));
     }
@@ -321,7 +321,7 @@ impl App {
                 match LoadModelState::prepare_topology(&self.config, model).await {
                     Ok(topology) => {
                         // move to loading model state and trigger load
-                        self.state = AppState::Model(super::ModelState::Load(
+                        self.view = AppView::Model(super::ModelView::Load(
                             LoadModelState::LoadingModel(model.clone()),
                         ));
                         self.topology = Some(topology);
@@ -330,21 +330,21 @@ impl App {
                         match LoadModelState::load_model(&self.config.api_url(), Some(&model)).await
                         {
                             Ok(load_response) => {
-                                self.state = AppState::Model(super::ModelState::Load(
+                                self.view = AppView::Model(super::ModelView::Load(
                                     LoadModelState::Success(load_response),
                                 ));
                             }
                             Err(err) => {
-                                self.state = AppState::Model(super::ModelState::Load(
+                                self.view = AppView::Model(super::ModelView::Load(
                                     LoadModelState::Error(err.to_string()),
                                 ));
                             }
                         }
                     }
                     Err(err) => {
-                        self.state = AppState::Model(super::ModelState::Load(
-                            LoadModelState::Error(err.to_string()),
-                        ));
+                        self.view = AppView::Model(super::ModelView::Load(LoadModelState::Error(
+                            err.to_string(),
+                        )));
                     }
                 }
             }
