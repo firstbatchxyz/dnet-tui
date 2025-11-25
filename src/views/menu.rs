@@ -12,6 +12,12 @@ use ratatui::{
     widgets::{List, ListItem, Paragraph},
 };
 
+/// A menu item.
+///
+/// Two things determine whether a menu item is enabled or disabled:
+///
+/// - Whether a model is loaded within the topology.
+/// - Whether there are available models to load.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum MenuItem {
     Chat,
@@ -26,23 +32,27 @@ pub enum MenuItem {
 
 impl MenuItem {
     /// Determines if the menu item should be disabled based on current app state.
-    pub fn is_disabled(&self, model_loaded: bool, topology_loaded: bool) -> bool {
+    pub fn is_disabled(
+        &self,
+        model_loaded: bool,
+        topology_loaded: bool,
+        models_available: bool,
+    ) -> bool {
         match self {
             MenuItem::Chat => !model_loaded,
-            // MenuItem::LoadModel => model_loaded,
+            MenuItem::LoadModel => model_loaded || !models_available,
             MenuItem::UnloadModel => !model_loaded,
-
             MenuItem::ViewTopology => !topology_loaded,
 
             _ => false,
         }
     }
     /// Formats a menu item for display.
-    pub fn fmt(&self, model_loaded: bool, topology_loaded: bool) -> String {
+    pub fn fmt(&self, model_loaded: bool, topology_loaded: bool, models_available: bool) -> String {
         format!(
             "{:<15}: {}",
             self.label(),
-            self.description(model_loaded, topology_loaded)
+            self.description(model_loaded, topology_loaded, models_available)
         )
     }
 
@@ -72,7 +82,12 @@ impl MenuItem {
         }
     }
 
-    pub fn description(&self, model_loaded: bool, topology_loaded: bool) -> &str {
+    pub fn description(
+        &self,
+        model_loaded: bool,
+        topology_loaded: bool,
+        models_available: bool,
+    ) -> &str {
         match self {
             MenuItem::Chat => {
                 if model_loaded {
@@ -90,13 +105,13 @@ impl MenuItem {
                 }
             }
             MenuItem::LoadModel => {
-                "Load a model"
-                // FIXME: !!!
-                // if self. {
-                //     "Load a model (model already loaded)"
-                // } else {
-                //     "Load a model"
-                // }
+                if model_loaded {
+                    "Load a model (model already loaded)"
+                } else if models_available {
+                    "Load a model"
+                } else {
+                    "Load a model (no models available)"
+                }
             }
             MenuItem::UnloadModel => {
                 if model_loaded {
@@ -117,10 +132,13 @@ impl MenuItem {
     }
 
     /// The total width of the menu when fully rendered.
-    pub fn total_width(model_loaded: bool, topology_loaded: bool) -> u16 {
+    pub fn total_width(model_loaded: bool, topology_loaded: bool, models_available: bool) -> u16 {
         Self::all()
             .iter()
-            .map(|item| item.fmt(model_loaded, topology_loaded).len() as u16)
+            .map(|item| {
+                item.fmt(model_loaded, topology_loaded, models_available)
+                    .len() as u16
+            })
             .max()
             .unwrap_or(0)
     }
@@ -180,6 +198,7 @@ impl App {
 
         frame.render_widget(Paragraph::new(ascii_art).centered(), art_area);
 
+        let models_available = !self.available_models.is_empty();
         let is_topology_loaded = self.topology.is_some();
         let is_model_loaded = self.topology.as_ref().is_some_and(|t| t.model.is_some());
 
@@ -189,7 +208,8 @@ impl App {
             .enumerate()
             .map(|(i, item)| {
                 // decide style based on selection and availability
-                let is_disabled = item.is_disabled(is_model_loaded, is_topology_loaded);
+                let is_disabled =
+                    item.is_disabled(is_model_loaded, is_topology_loaded, models_available);
                 let is_selected = i == self.selected_menu;
 
                 let style = match (is_selected, is_disabled) {
@@ -209,7 +229,8 @@ impl App {
                     (false, false) => Style::default(),
                 };
 
-                ListItem::new(item.fmt(is_model_loaded, is_topology_loaded)).style(style)
+                ListItem::new(item.fmt(is_model_loaded, is_topology_loaded, models_available))
+                    .style(style)
             })
             .collect();
 
@@ -224,7 +245,8 @@ impl App {
         .areas(menu_area);
 
         // Calculate horizontal centering for menu
-        let menu_width = MenuItem::total_width(is_model_loaded, is_topology_loaded);
+        let menu_width =
+            MenuItem::total_width(is_model_loaded, is_topology_loaded, models_available);
         let left_padding = (vertical_centered_area.width.saturating_sub(menu_width)) / 2;
         let [_, centered_menu_area, _] = Layout::horizontal([
             Constraint::Length(left_padding),
@@ -292,6 +314,7 @@ impl App {
                 }
             }
             MenuItem::LoadModel => {
+                // FIXME: check available models too
                 if self.topology.as_ref().is_some_and(|t| t.model.is_some()) {
                     // if model already loaded, do nothing (item is disabled)
                 } else {

@@ -27,10 +27,7 @@ impl UnloadModelState {
             Ok(())
         } else {
             let error_text = response.text().await?;
-            Err(color_eyre::eyre::eyre!(
-                "Failed to unload model: {}",
-                error_text
-            ))
+            color_eyre::eyre::bail!("Failed to unload model: {}", error_text)
         }
     }
 }

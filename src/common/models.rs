@@ -11,12 +11,18 @@ pub struct ModelInfo {
     /// The owner of the model, usually `local` for dnet.
     pub owned_by: String,
 }
-// {"created":1764014230,"id":"mlx-community/gpt-oss-20b-MXFP4-Q8","object":"model","owned_by":"local"}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct ListModelsResponse {
+    pub object: String,
+    pub data: Vec<ModelInfo>,
+}
+
 pub async fn get_models_from_api(api_url: &str) -> color_eyre::Result<Vec<ModelInfo>> {
     let url = format!("{}/v1/models", api_url);
     let response = reqwest::get(url).await?;
-    let models: Vec<ModelInfo> = response.json().await?;
-    Ok(models)
+    let models: ListModelsResponse = response.json().await?;
+    Ok(models.data)
 }
 
 #[cfg(test)]
@@ -30,9 +36,9 @@ mod tests {
         assert!(result.is_ok());
 
         let models = result.unwrap();
-        println!("Retrieved {} models", models.len());
+        println!("Retrieved {} models:", models.len());
         for model in models {
-            println!("{:?}", model);
+            println!("{}", model.id);
         }
     }
 }

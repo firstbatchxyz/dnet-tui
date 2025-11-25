@@ -1,5 +1,5 @@
 use crate::chat::{ChatActiveState, ChatState};
-use crate::common::TopologyInfo;
+use crate::common::{ModelInfo, TopologyInfo};
 use crate::config::Config;
 use crate::developer::DeveloperState;
 use crate::devices::DevicesState;
@@ -67,7 +67,7 @@ pub struct App {
     /// Current topology (if present).
     pub topology: Option<TopologyInfo>,
     /// Available models fetched from API
-    pub available_models: Vec<crate::common::ModelInfo>,
+    pub available_models: Vec<ModelInfo>,
 }
 
 impl App {
