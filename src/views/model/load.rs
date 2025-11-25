@@ -212,7 +212,9 @@ impl App {
     }
 
     fn model_down(&mut self) {
-        if self.selected_model < self.available_models.len() - 1 {
+        if !self.available_models.is_empty()
+            && self.selected_model < self.available_models.len() - 1
+        {
             self.selected_model += 1;
         }
     }

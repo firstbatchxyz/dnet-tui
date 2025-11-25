@@ -1,22 +1,22 @@
 # dnet-tui
 
-A terminal user interface (TUI) application built with Rust.
+A terminal user interface (TUI) application built with Rust for [dnet](https://github.com/firstbatchxyz/dnet).
 
 ## Installation
 
-### Using Cargo
+Install using `cargo`:
 
 ```sh
 cargo install https://github.com/firstbatchxyz/dnet-tui.git
 ```
 
-### From Source
-
-```sh
-git clone https://github.com/firstbatchxyz/dnet-tui.git
-cd dnet-tui
-cargo build --release
-```
+> You can install from source as well:
+>
+> ```sh
+> git clone https://github.com/firstbatchxyz/dnet-tui.git
+> cd dnet-tui
+> cargo build --release
+> ```
 
 ## Usage
 
@@ -25,6 +25,12 @@ Run the application:
 ```sh
 dnet-tui
 ```
+
+> To run from source:
+>
+> ```sh
+> cargo run
+> ```
 
 ## Contributions
 

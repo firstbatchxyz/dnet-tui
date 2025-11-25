@@ -33,7 +33,7 @@ pub struct ManualAssignmentState {
     shards: Vec<ShardInfo>,
     assignments: HashMap<String /* shard */, Vec<u32> /* layers */>,
     selected_shard: usize,
-    input_mode: bool,
+    is_typing: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -126,7 +126,7 @@ impl crate::App {
                 "↑↓: Select model | Enter: Continue | Esc: Back"
             }
             ManualAssignmentView::AssigningLayers => {
-                if self.state.developer.manual.input_mode {
+                if self.state.developer.manual.is_typing {
                     "Type layers (e.g., 0,1,2 or 0-5) | Enter: Save | Esc: Cancel input"
                 } else {
                     "↑↓: Select shard | Enter: Assign layers | C: Complete | Esc: Back"
@@ -221,7 +221,7 @@ impl crate::App {
             };
 
             let is_selected = i == state.selected_shard;
-            let style = if is_selected && state.input_mode {
+            let style = if is_selected && state.is_typing {
                 Style::default()
                     .fg(Color::Yellow)
                     .add_modifier(Modifier::BOLD)
@@ -234,7 +234,7 @@ impl crate::App {
                 Style::default()
             };
 
-            let item = if is_selected && state.input_mode {
+            let item = if is_selected && state.is_typing {
                 ListItem::new(format!("{} > {}", display_text, self.input_buffer)).style(style)
             } else {
                 ListItem::new(display_text).style(style)
@@ -314,7 +314,9 @@ impl crate::App {
                     }
                 }
                 (_, KeyCode::Down) => {
-                    if self.selected_model < self.available_models.len() - 1 {
+                    if !self.available_models.is_empty()
+                        && self.selected_model < self.available_models.len() - 1
+                    {
                         self.selected_model += 1;
                     }
                 }
@@ -329,11 +331,11 @@ impl crate::App {
             ManualAssignmentView::AssigningLayers => {
                 let state = &mut self.state.developer.manual;
 
-                if state.input_mode {
+                if state.is_typing {
                     // In input mode
                     match key.code {
                         KeyCode::Esc => {
-                            state.input_mode = false;
+                            state.is_typing = false;
                             self.input_buffer.clear();
                         }
                         KeyCode::Enter => {
@@ -348,7 +350,7 @@ impl crate::App {
                                     );
                                 }
                             }
-                            state.input_mode = false;
+                            state.is_typing = false;
                             self.input_buffer.clear();
                         }
                         KeyCode::Backspace => {
@@ -376,12 +378,14 @@ impl crate::App {
                             }
                         }
                         (_, KeyCode::Down) => {
-                            if state.selected_shard < state.shards.len() - 1 {
+                            if !state.shards.is_empty()
+                                && state.selected_shard < state.shards.len() - 1
+                            {
                                 state.selected_shard += 1;
                             }
                         }
                         (_, KeyCode::Enter) => {
-                            state.input_mode = true;
+                            state.is_typing = true;
                             self.input_buffer.clear();
                         }
                         (_, KeyCode::Char('c') | KeyCode::Char('C')) => {
@@ -677,7 +681,7 @@ impl crate::App {
                                     shards,
                                     assignments: HashMap::new(),
                                     selected_shard: 0,
-                                    input_mode: false,
+                                    is_typing: false,
                                 };
                                 self.view = AppView::Developer(DeveloperView::ManualAssignment(
                                     ManualAssignmentView::AssigningLayers,
