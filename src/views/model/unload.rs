@@ -14,22 +14,6 @@ pub enum UnloadModelView {
     Success,
 }
 
-impl UnloadModelView {
-    /// Unload model by calling the API
-    pub async fn unload_model(api_url: &str) -> color_eyre::Result<()> {
-        let url = format!("{}/v1/unload_model", api_url);
-        let client = reqwest::Client::new();
-
-        let response = client.post(&url).send().await?;
-        if response.status().is_success() {
-            Ok(())
-        } else {
-            let error_text = response.text().await?;
-            color_eyre::eyre::bail!("Failed to unload model: {}", error_text)
-        }
-    }
-}
-
 impl crate::App {
     pub(super) fn draw_unload_model(&mut self, frame: &mut Frame, state: &UnloadModelView) {
         let area = frame.area();
@@ -112,7 +96,7 @@ impl crate::App {
     /// Handle async operations for unload model state (called during tick).
     pub(super) async fn tick_unload_model(&mut self, view: &UnloadModelView) {
         if matches!(view, UnloadModelView::Unloading) {
-            match UnloadModelView::unload_model(&self.config.api_url()).await {
+            match self.api.unload_model().await {
                 Ok(_) => {
                     self.view =
                         crate::AppView::Model(super::ModelView::Unload(UnloadModelView::Success));

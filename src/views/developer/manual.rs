@@ -21,7 +21,7 @@ pub enum ManualAssignmentView {
     FetchingShards(String /* model name */),
     AssigningLayers,
     Submitting,
-    LoadingModel(String /* model name */), // new state for loading after topology
+    LoadingModel(String /* model name */),
     Success,
     Error(String),
 }
@@ -31,7 +31,7 @@ pub struct ManualAssignmentState {
     model: String,
     num_layers: u32,
     shards: Vec<ShardInfo>,
-    assignments: HashMap<String, Vec<u32>>, // shard instance -> layers
+    assignments: HashMap<String /* shard */, Vec<u32> /* layers */>,
     selected_shard: usize,
     input_mode: bool,
 }
@@ -410,7 +410,7 @@ impl crate::App {
                 ));
             }
             ManualAssignmentView::LoadingModel(_) => {
-                // Loading is in progress, just wait
+                // loading is in progress, just wait
             }
             ManualAssignmentView::Success | ManualAssignmentView::Error(_) => {
                 if key.code == KeyCode::Esc {
@@ -422,7 +422,6 @@ impl crate::App {
     }
 
     pub async fn fetch_shards_with_model(&self) -> color_eyre::Result<Vec<ShardInfo>> {
-        // get devices from the /v1/devices endpoint
         let devices = self.api.get_devices().await?;
 
         let mut shards = Vec::new();
@@ -431,7 +430,7 @@ impl crate::App {
                 continue; // skip the manager nodes (API)
             }
 
-            // Get shard health info
+            // get shard health info
             let health_url = format!("http://{}:{}/health", device.local_ip, device.server_port);
             let (model_loaded, assigned_layers) =
                 if let Ok(health_response) = reqwest::get(&health_url).await {
@@ -723,9 +722,7 @@ impl crate::App {
             }
             ManualAssignmentView::LoadingModel(model) => {
                 // Load the model using the existing LoadModelState functionality
-                match crate::model::LoadModelView::load_model(&self.config.api_url(), Some(&model))
-                    .await
-                {
+                match self.api.load_model(&model).await {
                     Ok(_response) => {
                         self.view = AppView::Developer(DeveloperView::ManualAssignment(
                             ManualAssignmentView::Success,

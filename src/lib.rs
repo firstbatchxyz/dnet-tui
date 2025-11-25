@@ -8,4 +8,5 @@ pub use views::*;
 
 mod common;
 mod config;
+pub use config::Config;
 mod utils;

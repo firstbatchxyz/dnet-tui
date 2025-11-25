@@ -1,5 +1,4 @@
-use crate::common::TopologyInfo;
-use crate::config::{Config, KVBits};
+use crate::common::LoadModelResponse;
 use crate::{App, AppView};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{
@@ -9,21 +8,6 @@ use ratatui::{
     text::Line,
     widgets::{Block, List, ListItem, Paragraph},
 };
-use serde::{Deserialize, Serialize};
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ShardLoadStatus {
-    /// Shard name
-    pub instance: String,
-    /// Whether loading succeeded
-    pub success: bool,
-    /// Layers successfully loaded
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub layers_loaded: Option<Vec<u32>>,
-    /// Status or error message
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub message: Option<String>,
-}
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum LoadModelView {
@@ -32,78 +16,6 @@ pub enum LoadModelView {
     LoadingModel(String /* model name */),
     Error(String),
     Success(LoadModelResponse),
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct LoadModelResponse {
-    /// Model name
-    pub model: String,
-    /// Whether all shards loaded successfully
-    pub success: bool,
-    /// Status of each shard
-    pub shard_statuses: Vec<ShardLoadStatus>,
-    /// Overall status or error message
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub message: Option<String>,
-}
-
-impl LoadModelView {
-    /// Prepare topology by calling the API.
-    pub async fn prepare_topology(
-        config: &Config,
-        model: &str,
-    ) -> color_eyre::Result<TopologyInfo> {
-        #[derive(Debug, Clone, Serialize, Deserialize)]
-        struct PrepareTopologyRequest {
-            pub model: String,
-            kv_bits: KVBits,
-            seq_len: u32,
-            max_batch_exp: u8,
-        }
-
-        let url = format!("{}/v1/prepare_topology", config.api_url());
-        let client = reqwest::Client::new();
-        let request = PrepareTopologyRequest {
-            model: model.to_string(),
-            kv_bits: config.kv_bits,
-            seq_len: config.seq_len,
-            max_batch_exp: config.max_batch_exp,
-        };
-
-        let response = client.post(&url).json(&request).send().await?;
-        let topology: TopologyInfo = response.json().await?;
-        Ok(topology)
-    }
-
-    /// Load model by calling the API with just the model name
-    pub async fn load_model(
-        api_url: &str,
-        model: Option<&str>,
-    ) -> color_eyre::Result<LoadModelResponse> {
-        let url = format!("{}/v1/load_model", api_url);
-        let client = reqwest::Client::new();
-
-        // Create request body - either empty {} or {"model": "model_name"}
-        let body = if let Some(model_name) = model {
-            serde_json::json!({"model": model_name})
-        } else {
-            serde_json::json!({})
-        };
-
-        let response = client.post(&url).json(&body).send().await?;
-
-        // Check if response is successful
-        if response.status().is_success() {
-            let load_response: LoadModelResponse = response.json().await?;
-            Ok(load_response)
-        } else {
-            let error_text = response.text().await?;
-            Err(color_eyre::eyre::eyre!(
-                "Failed to load model: {}",
-                error_text
-            ))
-        }
-    }
 }
 
 impl App {
@@ -316,7 +228,7 @@ impl App {
     pub(super) async fn tick_load_model(&mut self, state: &LoadModelView) {
         match state {
             LoadModelView::PreparingTopology(model) => {
-                match LoadModelView::prepare_topology(&self.config, model).await {
+                match self.api.prepare_topology(&self.config, model).await {
                     Ok(topology) => {
                         // move to loading model state and trigger load
                         self.view = AppView::Model(super::ModelView::Load(
@@ -325,8 +237,7 @@ impl App {
                         self.topology = Some(topology);
 
                         // load the model
-                        match LoadModelView::load_model(&self.config.api_url(), Some(&model)).await
-                        {
+                        match self.api.load_model(&model).await {
                             Ok(load_response) => {
                                 self.view = AppView::Model(super::ModelView::Load(
                                     LoadModelView::Success(load_response),

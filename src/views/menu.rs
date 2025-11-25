@@ -74,6 +74,8 @@ impl MenuItem {
             MenuItem::LoadModel => model_loaded || !models_available,
             MenuItem::UnloadModel => !model_loaded,
             MenuItem::ViewTopology => !topology_loaded,
+            // FIXME: we treat this as API disabled, but we should have a bool for that
+            MenuItem::ViewDevices => !models_available,
 
             _ => false,
         }
@@ -114,7 +116,13 @@ impl MenuItem {
                     "Chat (no model loaded)"
                 }
             }
-            MenuItem::ViewDevices => "View discovered devices",
+            MenuItem::ViewDevices => {
+                if models_available {
+                    "View dnet devices"
+                } else {
+                    "View devices (API unavailable)"
+                }
+            }
             MenuItem::ViewTopology => {
                 if topology_loaded {
                     "View dnet topology"
@@ -128,7 +136,7 @@ impl MenuItem {
                 } else if models_available {
                     "Load a model"
                 } else {
-                    "Load a model (no models available)"
+                    "Load a model (API unavailable)"
                 }
             }
             MenuItem::UnloadModel => {
@@ -312,31 +320,31 @@ impl App {
     }
 
     fn select_menu_item(&mut self) {
+        let models_available = !self.available_models.is_empty();
+        let topology_loaded = self.topology.is_some();
+        let model_loaded = self.topology.as_ref().is_some_and(|t| t.model.is_some());
         match MenuItem::ALL[self.state.menu.selection_idx] {
             MenuItem::Chat => {
                 // only allow entering chat if model is loaded
-                if self.topology.as_ref().is_some_and(|t| t.model.is_some()) {
+                if model_loaded {
                     self.view = AppView::Chat(crate::chat::ChatView::Active);
-                } else {
-                    // if topology not loaded, do nothing (item is disabled)
                 }
             }
             MenuItem::ViewDevices => {
-                self.view = AppView::Devices(crate::devices::DevicesView::Loading);
+                if models_available {
+                    self.view = AppView::Devices(crate::devices::DevicesView::Loading);
+                }
             }
             MenuItem::ViewTopology => {
-                if self.topology.is_some() {
+                // if topology not loaded, do nothing (item is disabled)
+                if topology_loaded {
                     self.state.topology.selected_device = 0; // reset to not overflow
                     self.view = AppView::Topology(TopologyView::Ring(TopologyRingView::Loaded));
-                } else {
-                    // if topology not loaded, do nothing (item is disabled)
                 }
             }
             MenuItem::LoadModel => {
-                // FIXME: check available models too
-                if self.topology.as_ref().is_some_and(|t| t.model.is_some()) {
-                    // if model already loaded, do nothing (item is disabled)
-                } else {
+                // if model already loaded, do nothing (item is disabled)
+                if !model_loaded && models_available {
                     self.view = AppView::Model(super::model::ModelView::Load(
                         LoadModelView::SelectingModel,
                     ));
@@ -345,12 +353,11 @@ impl App {
                 }
             }
             MenuItem::UnloadModel => {
-                if self.topology.is_some() {
+                // if topology not loaded, do nothing (item is disabled)
+                if !model_loaded && topology_loaded {
                     self.view =
                         AppView::Model(super::model::ModelView::Unload(UnloadModelView::Unloading));
                     self.status_message.clear();
-                } else {
-                    // if topology not loaded, do nothing (item is disabled)
                 }
             }
             MenuItem::Settings => {
