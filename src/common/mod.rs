@@ -6,3 +6,6 @@ pub use topology::*;
 
 mod shard;
 pub use shard::*;
+
+mod api;
+pub use api::*;

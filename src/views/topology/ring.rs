@@ -1,5 +1,5 @@
 use crate::common::TopologyInfo;
-use crate::{app::AppState, utils::get_sliding_text};
+use crate::{app::AppView, utils::get_sliding_text};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{
     Frame,
@@ -13,7 +13,7 @@ use ratatui::{
 };
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum TopologyRingState {
+pub enum TopologyRingView {
     Loading,
     Loaded,
     Error(String),
@@ -38,7 +38,7 @@ impl TopologyInfo {
     }
 }
 impl crate::App {
-    pub(super) fn draw_topology_ring_view(&mut self, frame: &mut Frame, state: &TopologyRingState) {
+    pub(super) fn draw_topology_ring_view(&mut self, frame: &mut Frame, state: &TopologyRingView) {
         let area = frame.area();
 
         let vertical = Layout::vertical([
@@ -54,7 +54,7 @@ impl crate::App {
 
         // Content
         match state {
-            TopologyRingState::Loading => {
+            TopologyRingView::Loading => {
                 frame.render_widget(
                     Paragraph::new("Loading topology...")
                         .block(Block::bordered())
@@ -62,7 +62,7 @@ impl crate::App {
                     content_area,
                 );
             }
-            TopologyRingState::Error(err) => {
+            TopologyRingView::Error(err) => {
                 // Check if it's a "no topology" message and style accordingly
                 let (text, style) = if err.contains("No topology configured")
                     || err.contains("No topology available")
@@ -123,7 +123,7 @@ impl crate::App {
                     content_area,
                 );
             }
-            TopologyRingState::Loaded => {
+            TopologyRingView::Loaded => {
                 if self.topology.is_some() {
                     self.draw_topology_ring(frame, content_area);
                 } else {
@@ -139,7 +139,7 @@ impl crate::App {
 
         // Footer
         let footer_text = match state {
-            TopologyRingState::Loaded => {
+            TopologyRingView::Loaded => {
                 "Use ↑↓ to select device  |  Enter to interact  |  Esc to go back"
             }
             _ => "Press Esc to go back",
@@ -212,9 +212,6 @@ impl crate::App {
                 .unwrap_or(&device.instance)
                 .to_string();
 
-            // Apply sliding window animation to device name
-            let short_name = get_sliding_text(self.animation_start.elapsed(), &instance, 30);
-
             // Get IP and GRPC port
             let ip = format!(
                 "{}:{} ({})",
@@ -224,12 +221,12 @@ impl crate::App {
             // Get layer assignments
             let layers = TopologyInfo::format_layers(&assignment.layers);
 
-            let is_selected = i == self.selected_device;
+            let is_selected = i == self.state.topology.selected_device;
 
             devices_info.push(DeviceInfo {
                 x,
                 y,
-                instance: short_name,
+                instance: get_sliding_text(self.animation_start.elapsed(), &instance, 30),
                 ip,
                 layers,
                 is_selected,
@@ -352,8 +349,7 @@ impl crate::App {
     pub(super) fn handle_topology_ring_input(&mut self, key: KeyEvent) {
         match (key.modifiers, key.code) {
             (_, KeyCode::Esc) => {
-                self.state = AppState::Menu;
-                self.selected_device = 0; // Reset selection
+                self.view = AppView::Menu;
             }
             (KeyModifiers::CONTROL, KeyCode::Char('c') | KeyCode::Char('C')) => self.quit(),
             (_, KeyCode::Up) => self.topology_device_up(),
@@ -364,17 +360,15 @@ impl crate::App {
     }
 
     fn topology_device_up(&mut self) {
-        if let AppState::Topology(super::TopologyState::Ring(TopologyRingState::Loaded)) =
-            &self.state
-        {
+        if let AppView::Topology(super::TopologyView::Ring(TopologyRingView::Loaded)) = &self.view {
             if let Some(topology) = &self.topology {
                 let device_count = topology.devices.len();
                 if device_count > 0 {
-                    // Cycle: if at 0, wrap to last device
-                    if self.selected_device == 0 {
-                        self.selected_device = device_count - 1;
+                    // if at 0, wrap to last device
+                    if self.state.topology.selected_device == 0 {
+                        self.state.topology.selected_device = device_count - 1;
                     } else {
-                        self.selected_device -= 1;
+                        self.state.topology.selected_device -= 1;
                     }
                 }
             }
@@ -382,28 +376,25 @@ impl crate::App {
     }
 
     fn topology_device_down(&mut self) {
-        if let AppState::Topology(super::TopologyState::Ring(TopologyRingState::Loaded)) =
-            &self.state
-        {
+        if let AppView::Topology(super::TopologyView::Ring(TopologyRingView::Loaded)) = &self.view {
             if let Some(topology) = &self.topology {
                 let device_count = topology.devices.len();
                 if device_count > 0 {
-                    // Cycle: if at last, wrap to 0
-                    self.selected_device = (self.selected_device + 1) % device_count;
+                    // if at last, wrap to 0
+                    self.state.topology.selected_device =
+                        (self.state.topology.selected_device + 1) % device_count;
                 }
             }
         }
     }
 
     fn open_shard_interaction(&mut self) {
-        if let AppState::Topology(super::TopologyState::Ring(TopologyRingState::Loaded)) =
-            &self.state
-        {
+        if let AppView::Topology(super::TopologyView::Ring(TopologyRingView::Loaded)) = &self.view {
             if let Some(topology) = &self.topology {
-                if let Some(device) = topology.devices.get(self.selected_device) {
-                    self.state = AppState::Topology(super::TopologyState::Shard(
+                if let Some(device) = topology.devices.get(self.state.topology.selected_device) {
+                    self.view = AppView::Topology(super::TopologyView::Shard(
                         device.instance.clone(),
-                        super::ShardViewState::Loading,
+                        super::ShardView::Loading,
                     ));
                 }
             }
@@ -411,19 +402,18 @@ impl crate::App {
     }
 
     /// Handle async operations for topology ring state (called during tick).
-    pub(super) async fn tick_topology_ring(&mut self, state: &TopologyRingState) {
-        if matches!(state, TopologyRingState::Loading) {
+    pub(super) async fn tick_topology_ring(&mut self, state: &TopologyRingView) {
+        if matches!(state, TopologyRingView::Loading) {
             self.load_topology().await;
         }
     }
 
     /// Load topology asynchronously and update state.
     async fn load_topology(&mut self) {
-        match TopologyInfo::fetch(&self.config.api_url()).await {
+        match self.api.get_topology().await {
             Ok(topology) => {
-                self.topology = Some(topology);
-                self.state =
-                    AppState::Topology(super::TopologyState::Ring(TopologyRingState::Loaded));
+                self.topology = topology;
+                self.view = AppView::Topology(super::TopologyView::Ring(TopologyRingView::Loaded));
             }
             Err(err) => {
                 // TODO: handle this better
@@ -449,9 +439,9 @@ impl crate::App {
                     format!("Error: {}", error_msg)
                 };
 
-                self.state = AppState::Topology(super::TopologyState::Ring(
-                    TopologyRingState::Error(friendly_msg),
-                ));
+                self.view = AppView::Topology(super::TopologyView::Ring(TopologyRingView::Error(
+                    friendly_msg,
+                )));
             }
         }
     }
@@ -460,15 +450,6 @@ impl crate::App {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[tokio::test]
-    #[ignore = "run manually"]
-    async fn test_fetch_topology() {
-        let api_url = "http://localhost:8080";
-        let topology = TopologyInfo::fetch(api_url).await;
-        println!("{:#?}", topology);
-        assert!(topology.is_ok());
-    }
 
     #[test]
     fn test_format_layers() {

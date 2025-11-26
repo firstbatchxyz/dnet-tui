@@ -1,5 +1,5 @@
 use crate::config::Config;
-use crate::{App, AppState};
+use crate::{App, AppView};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::text::Span;
 use ratatui::{
@@ -7,15 +7,26 @@ use ratatui::{
     layout::{Constraint, Layout},
     style::{Color, Modifier, Style, Stylize},
     text::Line,
-    widgets::{Block, Paragraph},
+    widgets::Paragraph,
 };
 
-// TODO: sloppy code here, will fix & shall do better styled error messages
+#[derive(Default, Debug)]
+pub struct SettingsState {
+    /// Selected settings field.
+    pub selection: SettingsField,
+    /// Status message for the settings view.
+    pub status: SettingsStatus,
+    /// Whether we're currently editing a settings field.
+    pub is_editing: bool,
+    /// Temporary config for editing stuff.
+    pub temp_config: Config,
+}
 
 /// Possible settings fields.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Default, Debug, Clone, Copy, PartialEq)]
 pub enum SettingsField {
     /// API Host.
+    #[default]
     Host,
     /// API Port.
     Port,
@@ -151,10 +162,10 @@ impl App {
             .iter()
             .map(|s| {
                 s.to_line(
-                    self.settings_selected_field,
-                    self.is_editing_setting,
+                    self.state.settings.selection,
+                    self.state.settings.is_editing,
                     &self.input_buffer,
-                    &self.temp_config,
+                    &self.state.settings.temp_config,
                 )
             })
             .collect::<Vec<_>>();
@@ -171,8 +182,8 @@ impl App {
         );
 
         // if there is a status message, add that as well
-        if !self.settings_status.is_empty() {
-            body_lines.push(Line::from(self.settings_status.to_span()));
+        if !self.state.settings.status.is_empty() {
+            body_lines.push(Line::from(self.state.settings.status.to_span()));
         }
 
         // add an empty line in between every element (better readability)
@@ -180,11 +191,7 @@ impl App {
             body_lines.insert(i * 2 - 1, Line::from(" "));
         }
 
-        frame.render_widget(
-            Paragraph::new(body_lines)
-                .block(Block::default().title("Use ↑↓ to select field, Enter to edit, s to save")),
-            settings_area,
-        );
+        frame.render_widget(Paragraph::new(body_lines), settings_area);
 
         // Footer
         let footer_text = "Press Esc to go back  |  Enter to edit field  |  s to save";
@@ -192,14 +199,14 @@ impl App {
     }
 
     pub fn handle_settings_input(&mut self, key: KeyEvent) {
-        if self.is_editing_setting {
+        if self.state.settings.is_editing {
             // editing mode
             match key.code {
                 KeyCode::Enter => self.apply_edit(),
                 KeyCode::Esc => {
-                    self.is_editing_setting = false;
+                    self.state.settings.is_editing = false;
                     self.input_buffer.clear();
-                    self.settings_status.clear();
+                    self.state.settings.status.clear();
                 }
                 KeyCode::Backspace => {
                     self.input_buffer.pop();
@@ -213,8 +220,8 @@ impl App {
             // normal settings navigation
             match (key.modifiers, key.code) {
                 (_, KeyCode::Esc) => {
-                    self.state = AppState::Menu;
-                    self.settings_status.clear();
+                    self.view = AppView::Menu;
+                    self.state.settings.status.clear();
                 }
                 (KeyModifiers::CONTROL, KeyCode::Char('c') | KeyCode::Char('C')) => self.quit(),
                 (_, KeyCode::Up) => self.settings_up(),
@@ -229,10 +236,10 @@ impl App {
     fn settings_up(&mut self) {
         let idx = SettingsField::ALL
             .iter()
-            .position(|s| *s == self.settings_selected_field)
+            .position(|s| *s == self.state.settings.selection)
             .unwrap_or_default(); // guaranteed to unwrap anyways
 
-        self.settings_selected_field = if idx == 0 {
+        self.state.settings.selection = if idx == 0 {
             SettingsField::ALL[SettingsField::ALL.len() - 1]
         } else {
             SettingsField::ALL[idx - 1]
@@ -242,48 +249,58 @@ impl App {
     fn settings_down(&mut self) {
         let idx = SettingsField::ALL
             .iter()
-            .position(|s| *s == self.settings_selected_field)
+            .position(|s| *s == self.state.settings.selection)
             .unwrap_or_default(); // guaranteed to unwrap anyways
 
-        self.settings_selected_field = SettingsField::ALL[(idx + 1) % SettingsField::ALL.len()];
+        self.state.settings.selection = SettingsField::ALL[(idx + 1) % SettingsField::ALL.len()];
     }
 
     fn start_edit(&mut self) {
-        self.is_editing_setting = true;
-        self.input_buffer = self.temp_config.read_setting(self.settings_selected_field);
-        self.settings_status.clear();
+        self.state.settings.is_editing = true;
+        self.input_buffer = self
+            .state
+            .settings
+            .temp_config
+            .read_setting(self.state.settings.selection);
+        self.state.settings.status.clear();
     }
 
     fn apply_edit(&mut self) {
         match self
+            .state
+            .settings
             .temp_config
-            .write_setting(self.settings_selected_field, &self.input_buffer)
+            .write_setting(self.state.settings.selection, &self.input_buffer)
         {
             Ok(_) => {
-                self.settings_status = SettingsStatus::Info(format!(
+                self.state.settings.status = SettingsStatus::Info(format!(
                     "{} updated (press 's' to save)",
-                    self.settings_selected_field.label()
+                    self.state.settings.selection.label()
                 ));
                 self.input_buffer.clear();
-                self.is_editing_setting = false;
+                self.state.settings.is_editing = false;
             }
             Err(e) => {
-                self.settings_status = SettingsStatus::Error(format!("[ERROR] {}", e));
+                self.state.settings.status = SettingsStatus::Error(format!("[ERROR] {}", e));
             }
         };
     }
 
     fn save_config(&mut self) {
-        match self.temp_config.save_to_dria() {
+        match self.state.settings.temp_config.save_to_dria() {
             Ok(_) => {
-                self.config = self.temp_config.clone();
-                self.settings_status = SettingsStatus::Info(format!(
+                use crate::common::ApiClient;
+
+                self.config = self.state.settings.temp_config.clone();
+                // update API client as well
+                self.api = ApiClient::new(&self.config.api_host, self.config.api_port);
+                self.state.settings.status = SettingsStatus::Info(format!(
                     "Configuration saved to {}",
                     Config::current_location()
                 ));
             }
             Err(e) => {
-                self.settings_status =
+                self.state.settings.status =
                     SettingsStatus::Error(format!("[ERROR] Could not save config: {}", e));
             }
         }

@@ -1,9 +1,12 @@
-use super::DeveloperState;
-use crate::AppState;
-use crate::common::{AssignmentInfo, DeviceProperties, DevicesResponse, ShardHealthResponse};
+use super::DeveloperView;
+use super::utils::{
+    determine_next_instances, find_missing_layers, format_layers, parse_layer_input,
+};
+use crate::AppView;
+use crate::common::{AssignmentInfo, DeviceProperties, ShardHealthResponse};
 use crate::config::{Config, KVBits};
-use crate::constants::AVAILABLE_MODELS;
-use color_eyre::eyre::Context;
+use crate::utils::ModelConfig;
+use color_eyre::eyre::OptionExt;
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::{
     Frame,
@@ -16,26 +19,24 @@ use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum ManualAssignmentState {
+pub enum ManualAssignmentView {
     SelectingModel,
     FetchingShards(String /* model name */),
-    AssigningLayers {
-        model: String,
-        num_layers: u32,
-        shards: Vec<ShardInfo>,
-        assignments: HashMap<String, Vec<u32>>, // shard instance -> layers
-        selected_shard: usize,
-        input_mode: bool,
-        input_buffer: String,
-    },
-    Submitting {
-        model: String,
-        shards: Vec<ShardInfo>,
-        assignments: HashMap<String, Vec<u32>>,
-    },
-    LoadingModel(String), // model name - new state for loading after topology
+    AssigningLayers,
+    Submitting,
+    LoadingModel(String /* model name */),
     Success,
     Error(String),
+}
+
+#[derive(Default, Debug)]
+pub struct ManualAssignmentState {
+    model: String,
+    num_layers: u32,
+    shards: Vec<ShardInfo>,
+    assignments: HashMap<String /* shard */, Vec<u32> /* layers */>,
+    selected_shard: usize,
+    is_typing: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -47,7 +48,7 @@ pub struct ShardInfo {
 }
 
 impl crate::App {
-    pub fn draw_manual_assignment(&mut self, frame: &mut Frame, state: &ManualAssignmentState) {
+    pub fn draw_manual_assignment(&mut self, frame: &mut Frame, view: &ManualAssignmentView) {
         let area = frame.area();
 
         let vertical = Layout::vertical([
@@ -64,11 +65,11 @@ impl crate::App {
             .centered();
         frame.render_widget(Paragraph::new(title), title_area);
 
-        match state {
-            ManualAssignmentState::SelectingModel => {
+        match view {
+            ManualAssignmentView::SelectingModel => {
                 self.draw_model_selection_for_manual(frame, content_area);
             }
-            ManualAssignmentState::FetchingShards(_) => {
+            ManualAssignmentView::FetchingShards(_) => {
                 frame.render_widget(
                     Paragraph::new("Fetching available shards...")
                         .block(Block::default().borders(Borders::ALL))
@@ -76,36 +77,21 @@ impl crate::App {
                     content_area,
                 );
             }
-            ManualAssignmentState::AssigningLayers {
-                model,
-                num_layers,
-                shards,
-                assignments,
-                selected_shard,
-                input_mode,
-                input_buffer,
-            } => {
-                self.draw_layer_assignment_interface(
-                    frame,
-                    content_area,
-                    model,
-                    *num_layers,
-                    shards,
-                    assignments,
-                    *selected_shard,
-                    *input_mode,
-                    input_buffer,
-                );
+            ManualAssignmentView::AssigningLayers => {
+                self.draw_layer_assignment_interface(frame, content_area);
             }
-            ManualAssignmentState::Submitting { model, .. } => {
+            ManualAssignmentView::Submitting => {
                 frame.render_widget(
-                    Paragraph::new(format!("Submitting topology for {}...", model))
-                        .block(Block::default().borders(Borders::ALL))
-                        .centered(),
+                    Paragraph::new(format!(
+                        "Submitting topology for {}...",
+                        self.state.developer.manual.model
+                    ))
+                    .block(Block::default().borders(Borders::ALL))
+                    .centered(),
                     content_area,
                 );
             }
-            ManualAssignmentState::LoadingModel(model) => {
+            ManualAssignmentView::LoadingModel(model) => {
                 frame.render_widget(
                     Paragraph::new(format!(
                         "Loading model {}...\nThis may take a few moments.",
@@ -117,7 +103,7 @@ impl crate::App {
                     content_area,
                 );
             }
-            ManualAssignmentState::Success => {
+            ManualAssignmentView::Success => {
                 frame.render_widget(
                     Paragraph::new("Manual topology prepared and model loaded successfully!")
                         .block(Block::default().borders(Borders::ALL))
@@ -126,7 +112,7 @@ impl crate::App {
                     content_area,
                 );
             }
-            ManualAssignmentState::Error(err) => {
+            ManualAssignmentView::Error(err) => {
                 frame.render_widget(
                     Paragraph::new(format!("Error: {}", err))
                         .block(Block::default().borders(Borders::ALL))
@@ -138,23 +124,23 @@ impl crate::App {
         }
 
         // Footer with context-specific help
-        let footer_text = match state {
-            ManualAssignmentState::SelectingModel => {
+        let footer_text = match view {
+            ManualAssignmentView::SelectingModel => {
                 "↑↓: Select model | Enter: Continue | Esc: Back"
             }
-            ManualAssignmentState::AssigningLayers { input_mode, .. } => {
-                if *input_mode {
+            ManualAssignmentView::AssigningLayers => {
+                if self.state.developer.manual.is_typing {
                     "Type layers (e.g., 0,1,2 or 0-5) | Enter: Save | Esc: Cancel input"
                 } else {
                     "↑↓: Select shard | Enter: Assign layers | C: Complete | Esc: Back"
                 }
             }
-            ManualAssignmentState::Success | ManualAssignmentState::Error(_) => {
+            ManualAssignmentView::Success | ManualAssignmentView::Error(_) => {
                 "Press Esc to go back"
             }
-            ManualAssignmentState::LoadingModel(_) => "Loading model...",
-            ManualAssignmentState::FetchingShards(_) => "Fetching shards...",
-            ManualAssignmentState::Submitting { .. } => "Submitting topology...",
+            ManualAssignmentView::LoadingModel(_) => "Loading model...",
+            ManualAssignmentView::FetchingShards(_) => "Fetching shards...",
+            ManualAssignmentView::Submitting => "Submitting topology...",
         };
 
         frame.render_widget(
@@ -166,7 +152,8 @@ impl crate::App {
     }
 
     fn draw_model_selection_for_manual(&mut self, frame: &mut Frame, area: Rect) {
-        let model_items: Vec<ListItem> = AVAILABLE_MODELS
+        let model_items: Vec<ListItem> = self
+            .available_models
             .iter()
             .enumerate()
             .map(|(i, model)| {
@@ -178,7 +165,7 @@ impl crate::App {
                 } else {
                     Style::default()
                 };
-                ListItem::new(format!("  {}", model)).style(style)
+                ListItem::new(format!("  {}", model.id)).style(style)
             })
             .collect();
 
@@ -191,18 +178,8 @@ impl crate::App {
         frame.render_widget(list, area);
     }
 
-    fn draw_layer_assignment_interface(
-        &mut self,
-        frame: &mut Frame,
-        area: Rect,
-        model: &str,
-        num_layers: u32,
-        shards: &[ShardInfo],
-        assignments: &HashMap<String, Vec<u32>>,
-        selected_shard: usize,
-        input_mode: bool,
-        input_buffer: &str,
-    ) {
+    fn draw_layer_assignment_interface(&mut self, frame: &mut Frame, area: Rect) {
+        let state = &self.state.developer.manual;
         let chunks = Layout::vertical([
             Constraint::Length(3), // Model info
             Constraint::Min(10),   // Shard list
@@ -211,9 +188,9 @@ impl crate::App {
         .split(area);
 
         // Model info
-        let model_info = vec![Line::from(format!(
+        let model_info: Vec<Line<'_>> = vec![Line::from(format!(
             "Model: {} | Total Layers: {}",
-            model, num_layers
+            state.model, state.num_layers
         ))];
         frame.render_widget(
             Paragraph::new(model_info).block(Block::default().borders(Borders::ALL)),
@@ -229,8 +206,9 @@ impl crate::App {
         let mut unassigned_items = Vec::new();
         let mut assigned_items = Vec::new();
 
-        for (i, shard) in shards.iter().enumerate() {
-            let shard_layers = assignments
+        for (i, shard) in state.shards.iter().enumerate() {
+            let shard_layers = state
+                .assignments
                 .get(&shard.device.instance)
                 .cloned()
                 .unwrap_or_default();
@@ -245,8 +223,8 @@ impl crate::App {
                 )
             };
 
-            let is_selected = i == selected_shard;
-            let style = if is_selected && input_mode {
+            let is_selected = i == state.selected_shard;
+            let style = if is_selected && state.is_typing {
                 Style::default()
                     .fg(Color::Yellow)
                     .add_modifier(Modifier::BOLD)
@@ -259,8 +237,8 @@ impl crate::App {
                 Style::default()
             };
 
-            let item = if is_selected && input_mode {
-                ListItem::new(format!("{} > {}", display_text, input_buffer)).style(style)
+            let item = if is_selected && state.is_typing {
+                ListItem::new(format!("{} > {}", display_text, self.input_buffer)).style(style)
             } else {
                 ListItem::new(display_text).style(style)
             };
@@ -287,12 +265,13 @@ impl crate::App {
         frame.render_widget(assigned_list, shard_chunks[1]);
 
         // Assignment status
-        let assigned_count: usize = assignments.values().map(|v| v.len()).sum();
-        let all_layers: HashSet<u32> = assignments
+        let assigned_count: usize = state.assignments.values().map(|v| v.len()).sum();
+        let all_layers: HashSet<u32> = state
+            .assignments
             .values()
             .flat_map(|v| v.iter().cloned())
             .collect();
-        let missing_layers = find_missing_layers(&all_layers, num_layers);
+        let missing_layers = find_missing_layers(&all_layers, state.num_layers);
 
         let status_color = if missing_layers.is_empty() {
             Color::Green
@@ -301,12 +280,15 @@ impl crate::App {
         };
 
         let status_text = if missing_layers.is_empty() {
-            format!("All {} layers assigned! Press 'C' to complete.", num_layers)
+            format!(
+                "All {} layers assigned! Press 'C' to complete.",
+                state.num_layers
+            )
         } else {
             format!(
                 "Assigned: {}/{} | Missing: {}",
                 assigned_count,
-                num_layers,
+                state.num_layers,
                 format_layers(&missing_layers)
             )
         };
@@ -322,12 +304,12 @@ impl crate::App {
     pub(super) fn handle_manual_assignment_input(
         &mut self,
         key: KeyEvent,
-        state: &ManualAssignmentState,
+        view: &ManualAssignmentView,
     ) {
-        match state {
-            ManualAssignmentState::SelectingModel => match (key.modifiers, key.code) {
+        match view {
+            ManualAssignmentView::SelectingModel => match (key.modifiers, key.code) {
                 (_, KeyCode::Esc) => {
-                    self.state = AppState::Developer(DeveloperState::Menu);
+                    self.view = AppView::Developer(DeveloperView::Menu);
                 }
                 (_, KeyCode::Up) => {
                     if self.selected_model > 0 {
@@ -335,62 +317,52 @@ impl crate::App {
                     }
                 }
                 (_, KeyCode::Down) => {
-                    if self.selected_model < AVAILABLE_MODELS.len() - 1 {
+                    if !self.available_models.is_empty()
+                        && self.selected_model < self.available_models.len() - 1
+                    {
                         self.selected_model += 1;
                     }
                 }
                 (_, KeyCode::Enter) => {
-                    let model = AVAILABLE_MODELS[self.selected_model].to_string();
-                    self.state = AppState::Developer(DeveloperState::ManualAssignment(
-                        ManualAssignmentState::FetchingShards(model),
+                    let model = self.available_models[self.selected_model].id.clone();
+                    self.view = AppView::Developer(DeveloperView::ManualAssignment(
+                        ManualAssignmentView::FetchingShards(model),
                     ));
                 }
                 _ => {}
             },
-            ManualAssignmentState::AssigningLayers {
-                model,
-                num_layers,
-                shards,
-                assignments,
-                selected_shard,
-                input_mode,
-                input_buffer,
-            } => {
-                let model = model.clone();
-                let num_layers = *num_layers;
-                let shards = shards.clone();
-                let mut assignments = assignments.clone();
-                let mut selected_shard = *selected_shard;
-                let mut input_mode = *input_mode;
-                let mut input_buffer = input_buffer.clone();
+            ManualAssignmentView::AssigningLayers => {
+                let state = &mut self.state.developer.manual;
 
-                if input_mode {
+                if state.is_typing {
                     // In input mode
                     match key.code {
                         KeyCode::Esc => {
-                            input_mode = false;
-                            input_buffer.clear();
+                            state.is_typing = false;
+                            self.input_buffer.clear();
                         }
                         KeyCode::Enter => {
                             // Parse and save layers
-                            if let Some(layers) = parse_layer_input(&input_buffer, num_layers) {
-                                if selected_shard < shards.len() {
-                                    assignments.insert(
-                                        shards[selected_shard].device.instance.clone(),
+                            if let Some(layers) =
+                                parse_layer_input(&self.input_buffer, state.num_layers)
+                            {
+                                if state.selected_shard < state.shards.len() {
+                                    state.assignments.insert(
+                                        state.shards[state.selected_shard].device.instance.clone(),
                                         layers,
                                     );
                                 }
                             }
-                            input_mode = false;
-                            input_buffer.clear();
+                            state.is_typing = false;
+                            self.input_buffer.clear();
                         }
                         KeyCode::Backspace => {
-                            input_buffer.pop();
+                            self.input_buffer.pop();
                         }
                         KeyCode::Char(c)
                             if c.is_ascii_digit() || c == ',' || c == '-' || c == ' ' =>
                         {
-                            input_buffer.push(c);
+                            self.input_buffer.push(c);
                         }
                         _ => {}
                     }
@@ -398,40 +370,39 @@ impl crate::App {
                     // Not in input mode
                     match (key.modifiers, key.code) {
                         (_, KeyCode::Esc) => {
-                            self.state = AppState::Developer(DeveloperState::ManualAssignment(
-                                ManualAssignmentState::SelectingModel,
+                            self.view = AppView::Developer(DeveloperView::ManualAssignment(
+                                ManualAssignmentView::SelectingModel,
                             ));
                             return;
                         }
                         (_, KeyCode::Up) => {
-                            if selected_shard > 0 {
-                                selected_shard -= 1;
+                            if state.selected_shard > 0 {
+                                state.selected_shard -= 1;
                             }
                         }
                         (_, KeyCode::Down) => {
-                            if selected_shard < shards.len() - 1 {
-                                selected_shard += 1;
+                            if !state.shards.is_empty()
+                                && state.selected_shard < state.shards.len() - 1
+                            {
+                                state.selected_shard += 1;
                             }
                         }
                         (_, KeyCode::Enter) => {
-                            input_mode = true;
-                            input_buffer.clear();
+                            state.is_typing = true;
+                            self.input_buffer.clear();
                         }
                         (_, KeyCode::Char('c') | KeyCode::Char('C')) => {
                             // Complete assignment
-                            let all_layers: HashSet<u32> = assignments
+                            let all_layers: HashSet<u32> = state
+                                .assignments
                                 .values()
                                 .flat_map(|v| v.iter().cloned())
                                 .collect();
-                            let missing_layers = find_missing_layers(&all_layers, num_layers);
+                            let missing_layers = find_missing_layers(&all_layers, state.num_layers);
 
                             if missing_layers.is_empty() {
-                                self.state = AppState::Developer(DeveloperState::ManualAssignment(
-                                    ManualAssignmentState::Submitting {
-                                        model: model.clone(),
-                                        shards: shards.clone(),
-                                        assignments: assignments.clone(),
-                                    },
+                                self.view = AppView::Developer(DeveloperView::ManualAssignment(
+                                    ManualAssignmentView::Submitting,
                                 ));
                                 return;
                             }
@@ -440,165 +411,33 @@ impl crate::App {
                     }
                 }
 
-                self.state = AppState::Developer(DeveloperState::ManualAssignment(
-                    ManualAssignmentState::AssigningLayers {
-                        model,
-                        num_layers,
-                        shards,
-                        assignments,
-                        selected_shard,
-                        input_mode,
-                        input_buffer,
-                    },
+                // FIXME: do we need this?
+                self.view = AppView::Developer(DeveloperView::ManualAssignment(
+                    ManualAssignmentView::AssigningLayers,
                 ));
             }
-            ManualAssignmentState::LoadingModel(_) => {
-                // Loading is in progress, just wait
+            ManualAssignmentView::LoadingModel(_) => {
+                // loading is in progress, just wait
             }
-            ManualAssignmentState::Success | ManualAssignmentState::Error(_) => {
+            ManualAssignmentView::Success | ManualAssignmentView::Error(_) => {
                 if key.code == KeyCode::Esc {
-                    self.state = AppState::Developer(DeveloperState::Menu);
+                    self.view = AppView::Developer(DeveloperView::Menu);
                 }
             }
             _ => {}
         }
     }
-}
 
-// Helper functions
-fn format_layers(layers: &[u32]) -> String {
-    if layers.is_empty() {
-        return "[]".to_string();
-    }
-
-    let mut sorted = layers.to_vec();
-    sorted.sort_unstable();
-
-    let mut ranges = Vec::new();
-    let mut start = sorted[0];
-    let mut end = sorted[0];
-
-    for &layer in &sorted[1..] {
-        if layer == end + 1 {
-            end = layer;
-        } else {
-            if start == end {
-                ranges.push(start.to_string());
-            } else {
-                ranges.push(format!("{}-{}", start, end));
-            }
-            start = layer;
-            end = layer;
-        }
-    }
-
-    if start == end {
-        ranges.push(start.to_string());
-    } else {
-        ranges.push(format!("{}-{}", start, end));
-    }
-
-    ranges.join(",")
-}
-
-fn parse_layer_input(input: &str, max_layers: u32) -> Option<Vec<u32>> {
-    let mut layers = Vec::new();
-
-    for part in input.split(',') {
-        let part = part.trim();
-        if part.is_empty() {
-            continue;
-        }
-
-        if let Some(dash_pos) = part.find('-') {
-            // Range
-            let start_str = &part[..dash_pos].trim();
-            let end_str = &part[dash_pos + 1..].trim();
-
-            if let (Ok(start), Ok(end)) = (start_str.parse::<u32>(), end_str.parse::<u32>()) {
-                if start < max_layers && end < max_layers && start <= end {
-                    layers.extend(start..=end);
-                }
-            }
-        } else {
-            // Single number
-            if let Ok(layer) = part.parse::<u32>() {
-                if layer < max_layers {
-                    layers.push(layer);
-                }
-            }
-        }
-    }
-
-    layers.sort_unstable();
-    layers.dedup();
-
-    if layers.is_empty() {
-        None
-    } else {
-        Some(layers)
-    }
-}
-
-fn find_missing_layers(assigned: &HashSet<u32>, total: u32) -> Vec<u32> {
-    let mut missing = Vec::new();
-    for i in 0..total {
-        if !assigned.contains(&i) {
-            missing.push(i);
-        }
-    }
-    missing
-}
-
-fn determine_next_instances(assignments: &HashMap<String, Vec<u32>>) -> HashMap<String, String> {
-    let mut next_instances = HashMap::new();
-
-    // Create a map of first_layer -> shard
-    let mut layer_to_shard: HashMap<u32, String> = HashMap::new();
-    for (shard, layers) in assignments {
-        if !layers.is_empty() {
-            let min_layer = *layers.iter().min().unwrap();
-            layer_to_shard.insert(min_layer, shard.clone());
-        }
-    }
-
-    // For each shard, find its next shard
-    for (shard, layers) in assignments {
-        if !layers.is_empty() {
-            let max_layer = *layers.iter().max().unwrap();
-
-            // Find the shard that has max_layer + 1
-            if let Some(next_shard) = layer_to_shard.get(&(max_layer + 1)) {
-                next_instances.insert(shard.clone(), next_shard.clone());
-            } else {
-                // This is the last shard, connect back to the first
-                if let Some(first_shard) = layer_to_shard.get(&0) {
-                    next_instances.insert(shard.clone(), first_shard.clone());
-                }
-            }
-        }
-    }
-
-    next_instances
-}
-
-// API functions
-impl ManualAssignmentState {
-    pub async fn fetch_shards_with_model(api_url: &str) -> color_eyre::Result<Vec<ShardInfo>> {
-        // get devices from the /v1/devices endpoint
-        let devices_url = format!("{}/v1/devices", api_url);
-        let response = reqwest::get(&devices_url)
-            .await
-            .wrap_err("Could not fetch devices")?;
-        let devices_response: DevicesResponse = response.json().await?;
+    pub async fn fetch_shards_with_model(&self) -> color_eyre::Result<Vec<ShardInfo>> {
+        let devices = self.api.get_devices().await?;
 
         let mut shards = Vec::new();
-        for device in devices_response.devices.into_values() {
+        for device in devices.into_values() {
             if device.is_manager {
                 continue; // skip the manager nodes (API)
             }
 
-            // Get shard health info
+            // get shard health info
             let health_url = format!("http://{}:{}/health", device.local_ip, device.server_port);
             let (model_loaded, assigned_layers) =
                 if let Ok(health_response) = reqwest::get(&health_url).await {
@@ -621,13 +460,14 @@ impl ManualAssignmentState {
         Ok(shards)
     }
 
-    pub async fn submit_manual_topology(
+    async fn submit_manual_topology(
+        &self,
         config: &Config,
         model: &str,
         shards: &[ShardInfo],
         assignments: &HashMap<String, Vec<u32>>,
     ) -> color_eyre::Result<()> {
-        #[derive(Debug, Serialize, Deserialize)]
+        #[derive(Serialize, Deserialize)]
         struct PrepareManualTopologyRequest {
             model: String,
             devices: Vec<DeviceProperties>,
@@ -637,7 +477,10 @@ impl ManualAssignmentState {
             seq_len: u32,
             max_batch_size: u8,
         }
-        let num_layers = get_model_layers(model);
+        let num_layers = ModelConfig::get_model_config(model)
+            .await?
+            .num_layers()
+            .ok_or_eyre("Could not determine number of layers")? as u32;
 
         // Determine next instances automatically
         let next_instances = determine_next_instances(assignments);
@@ -692,127 +535,89 @@ impl ManualAssignmentState {
         if response.status().is_success() {
             Ok(())
         } else {
-            let error_text = response.text().await?;
-            Err(color_eyre::eyre::eyre!(
-                "Failed to submit topology: {}",
-                error_text
-            ))
+            color_eyre::eyre::bail!("Failed to submit topology: {}", response.text().await?)
         }
     }
-}
 
-/// Helper to get number of layers for a model
-///
-/// This should match the actual model layer counts
-/// You might want to get this from an API endpoint
-#[rustfmt::skip]
-fn get_model_layers(model: &str) -> u32 {    
-    match model {
-        "Qwen/Qwen3-4B-MLX-4bit" 
-      | "Qwen/Qwen3-4B-MLX-8bit" => 36,
-
-        "Qwen/Qwen3-30B-A3B-MLX-8bit"
-      | "Qwen/Qwen3-30B-A3B-MLX-bf16"
-      | "Qwen/Qwen3-30B-A3B-MLX-6bit" => 30,
-        
-        "Qwen/Qwen3-32B-MLX-bf16"
-      | "Qwen/Qwen3-32B-MLX-8bit"
-      | "Qwen/Qwen3-32B-MLX-6bit" => 32,
-
-        "NousResearch/Hermes-4-70B" => 70,
-
-        "mlx-community/Meta-Llama-3.1-8B-Instruct-4bit"
-      | "mlx-community/Meta-Llama-3.1-8B-Instruct-8bit" => 32,
-
-        "mlx-community/Meta-Llama-3.1-70B-Instruct-4bit"
-      | "mlx-community/Meta-Llama-3.1-70B-Instruct-8bit" => 80,
-
-        // gpt OSS 20b
-        "openai/gpt-oss-20b"
-      | "mlx-community/gpt-oss-20b-MXFP4-Q4" 
-      | "mlx-community/gpt-oss-20b-MXFP4-Q8" => 24,
-
-        // gpt OSS 120b
-        "openai/gpt-oss-120b"
-      | "mlx-community/gpt-oss-120b-MXFP4-Q4"
-      | "mlx-community/gpt-oss-120b-MXFP4-Q8" => 36,
-
-        _ => 36, // default fallback FIXME: smelly
-    }
-}
-
-impl crate::App {
     /// Handle async operations for manual assignment state (called during tick).
-    pub(super) async fn tick_manual_assignment(&mut self, state: &ManualAssignmentState) {
-        match state {
-            ManualAssignmentState::FetchingShards(model) => {
-                match ManualAssignmentState::fetch_shards_with_model(&self.config.api_url()).await {
+    pub(super) async fn tick_manual_assignment(&mut self, view: &ManualAssignmentView) {
+        match view {
+            ManualAssignmentView::FetchingShards(model) => {
+                match self.fetch_shards_with_model().await {
                     Ok(shards) => {
-                        self.state = AppState::Developer(DeveloperState::ManualAssignment(
-                            ManualAssignmentState::AssigningLayers {
-                                num_layers: get_model_layers(model),
-                                model: model.clone(),
-                                shards,
-                                assignments: HashMap::new(),
-                                selected_shard: 0,
-                                input_mode: false,
-                                input_buffer: String::new(),
-                            },
-                        ));
-                    }
-                    Err(err) => {
-                        self.state = AppState::Developer(DeveloperState::ManualAssignment(
-                            ManualAssignmentState::Error(format!("{:#?}", err.to_string())),
-                        ));
-                    }
-                }
-            }
-            ManualAssignmentState::Submitting {
-                model,
-                shards,
-                assignments,
-            } => {
-                let model_name = model.clone();
-                match ManualAssignmentState::submit_manual_topology(
-                    &self.config,
-                    &model,
-                    &shards,
-                    &assignments,
-                )
-                .await
-                {
-                    Ok(_) => {
-                        // Topology prepared, now load the model
-                        self.state = AppState::Developer(DeveloperState::ManualAssignment(
-                            ManualAssignmentState::LoadingModel(model_name),
-                        ));
-                    }
-                    Err(err) => {
-                        self.state = AppState::Developer(DeveloperState::ManualAssignment(
-                            ManualAssignmentState::Error(format!("{:#?}", err.to_string())),
-                        ));
-                    }
-                }
-            }
-            ManualAssignmentState::LoadingModel(model) => {
-                // Load the model using the existing LoadModelState functionality
-                match crate::model::LoadModelState::load_model(&self.config.api_url(), Some(&model))
-                    .await
-                {
-                    Ok(_response) => {
-                        self.state = AppState::Developer(DeveloperState::ManualAssignment(
-                            ManualAssignmentState::Success,
-                        ));
-                        // Fetch topology after successful manual assignment
-                        if let Ok(topology) =
-                            crate::common::TopologyInfo::fetch(&self.config.api_url()).await
-                        {
-                            self.topology = Some(topology);
+                        match ModelConfig::get_model_config(model)
+                            .await
+                            .and_then(|config| {
+                                config
+                                    .num_layers()
+                                    .ok_or_eyre("Could not determine number of layers from config")
+                            }) {
+                            Ok(num_layers) => {
+                                self.state.developer.manual = ManualAssignmentState {
+                                    model: model.clone(),
+                                    num_layers: num_layers as u32,
+                                    shards,
+                                    assignments: HashMap::new(),
+                                    selected_shard: 0,
+                                    is_typing: false,
+                                };
+                                self.view = AppView::Developer(DeveloperView::ManualAssignment(
+                                    ManualAssignmentView::AssigningLayers,
+                                ));
+                            }
+                            Err(err) => {
+                                self.view = AppView::Developer(DeveloperView::ManualAssignment(
+                                    ManualAssignmentView::Error(format!("{:#?}", err)),
+                                ));
+                            }
                         }
                     }
                     Err(err) => {
-                        self.state = AppState::Developer(DeveloperState::ManualAssignment(
-                            ManualAssignmentState::Error(format!("Failed to load model: {}", err)),
+                        self.view = AppView::Developer(DeveloperView::ManualAssignment(
+                            ManualAssignmentView::Error(format!("{:#?}", err)),
+                        ));
+                    }
+                }
+            }
+            ManualAssignmentView::Submitting => {
+                let model = self.state.developer.manual.model.clone();
+                match self
+                    .submit_manual_topology(
+                        &self.config,
+                        &model,
+                        &self.state.developer.manual.shards,
+                        &self.state.developer.manual.assignments,
+                    )
+                    .await
+                {
+                    Ok(_) => {
+                        // Topology prepared, now load the model
+                        self.view = AppView::Developer(DeveloperView::ManualAssignment(
+                            ManualAssignmentView::LoadingModel(model),
+                        ));
+                    }
+                    Err(err) => {
+                        self.view = AppView::Developer(DeveloperView::ManualAssignment(
+                            ManualAssignmentView::Error(format!("{:#?}", err)),
+                        ));
+                    }
+                }
+            }
+            ManualAssignmentView::LoadingModel(model) => {
+                // Load the model using the existing LoadModelState functionality
+                match self.api.load_model(&model).await {
+                    Ok(_response) => {
+                        self.view = AppView::Developer(DeveloperView::ManualAssignment(
+                            ManualAssignmentView::Success,
+                        ));
+                        // Fetch topology after successful manual assignment
+                        if let Ok(topology) = self.api.get_topology().await {
+                            self.topology = topology;
+                        }
+                    }
+                    Err(err) => {
+                        self.view = AppView::Developer(DeveloperView::ManualAssignment(
+                            ManualAssignmentView::Error(format!("Failed to load model: {}", err)),
                         ));
                     }
                 }

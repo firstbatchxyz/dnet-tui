@@ -5,25 +5,25 @@ mod unload;
 pub use unload::*;
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum ModelState {
-    Load(LoadModelState),
-    Unload(UnloadModelState),
+pub enum ModelView {
+    Load(LoadModelView),
+    Unload(UnloadModelView),
 }
 
 impl crate::App {
     /// Handle async operations for model state (called during tick).
-    pub(crate) async fn tick_model(&mut self, state: &ModelState) {
-        match state {
-            ModelState::Load(load_state) => self.tick_load_model(load_state).await,
-            ModelState::Unload(unload_state) => self.tick_unload_model(unload_state).await,
+    pub(crate) async fn tick_model(&mut self, view: &ModelView) {
+        match view {
+            ModelView::Load(load_state) => self.tick_load_model(load_state).await,
+            ModelView::Unload(unload_state) => self.tick_unload_model(unload_state).await,
         }
     }
 
     /// Draw model state.
-    pub(crate) fn draw_model(&mut self, frame: &mut ratatui::Frame, state: &ModelState) {
-        match state {
-            ModelState::Load(load_state) => self.draw_load_model(frame, load_state),
-            ModelState::Unload(unload_state) => self.draw_unload_model(frame, unload_state),
+    pub(crate) fn draw_model(&mut self, frame: &mut ratatui::Frame, view: &ModelView) {
+        match view {
+            ModelView::Load(load_state) => self.draw_load_model(frame, load_state),
+            ModelView::Unload(unload_state) => self.draw_unload_model(frame, unload_state),
         }
     }
 
@@ -31,11 +31,11 @@ impl crate::App {
     pub(crate) fn handle_model_input(
         &mut self,
         key: crossterm::event::KeyEvent,
-        state: &ModelState,
+        state: &ModelView,
     ) {
         match state {
-            ModelState::Load(load_state) => self.handle_load_model_input(key, load_state),
-            ModelState::Unload(unload_state) => self.handle_unload_model_input(key, unload_state),
+            ModelView::Load(load_state) => self.handle_load_model_input(key, load_state),
+            ModelView::Unload(unload_state) => self.handle_unload_model_input(key, unload_state),
         }
     }
 }

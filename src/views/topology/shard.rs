@@ -1,5 +1,5 @@
 use crate::common::ShardHealthResponse;
-use crate::{App, app::AppState, views::topology::TopologyState};
+use crate::{App, app::AppView, views::topology::TopologyView};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{
     Frame,
@@ -10,13 +10,13 @@ use ratatui::{
 };
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum ShardViewState {
+pub enum ShardView {
     Loading,
     Loaded(ShardHealthResponse),
     Error(String),
 }
 
-impl ShardViewState {
+impl ShardView {
     /// Fetch shard health from the shard's HTTP endpoint
     pub async fn fetch(device_ip: &str, http_port: u16) -> Result<ShardHealthResponse, String> {
         let url = format!("http://{}:{}/health", device_ip, http_port);
@@ -42,7 +42,7 @@ impl App {
         &mut self,
         frame: &mut Frame,
         device_instance: &str,
-        state: &ShardViewState,
+        state: &ShardView,
     ) {
         let area = frame.area();
 
@@ -65,7 +65,7 @@ impl App {
 
         // Content
         match state {
-            ShardViewState::Loading => {
+            ShardView::Loading => {
                 let lines = vec![
                     Line::from(""),
                     Line::from("Loading shard health...").bold(),
@@ -76,7 +76,7 @@ impl App {
                     content_area,
                 );
             }
-            ShardViewState::Error(err) => {
+            ShardView::Error(err) => {
                 let error_lines = vec![
                     Line::from(""),
                     Line::from("Error Loading Shard Health").bold().red(),
@@ -92,7 +92,7 @@ impl App {
                     content_area,
                 );
             }
-            ShardViewState::Loaded(health) => {
+            ShardView::Loaded(health) => {
                 self.draw_shard_health(frame, content_area, health);
             }
         }
@@ -203,9 +203,9 @@ impl App {
         match (key.modifiers, key.code) {
             (_, KeyCode::Esc) => {
                 // go back to topology view
-                if let AppState::Topology(TopologyState::Shard(_, _)) = &self.state {
-                    self.state = AppState::Topology(super::TopologyState::Ring(
-                        super::TopologyRingState::Loaded,
+                if let AppView::Topology(TopologyView::Shard(_, _)) = &self.view {
+                    self.view = AppView::Topology(super::TopologyView::Ring(
+                        super::TopologyRingView::Loaded,
                     ));
                 }
             }
@@ -215,38 +215,38 @@ impl App {
     }
 
     /// Handle async operations for shard interaction state (called during tick).
-    pub(super) async fn tick_topology_shard(&mut self, device: &str, state: &ShardViewState) {
-        if matches!(state, ShardViewState::Loading) {
+    pub(super) async fn tick_topology_shard(&mut self, device: &str, state: &ShardView) {
+        if matches!(state, ShardView::Loading) {
             // Find the device in the topology to get its IP and port
             if let Some(topology) = &self.topology {
                 if let Some(dev) = topology.devices.iter().find(|d| d.instance == device) {
                     let device_ip = dev.local_ip.clone();
                     let http_port = dev.server_port;
 
-                    match ShardViewState::fetch(&device_ip, http_port).await {
+                    match ShardView::fetch(&device_ip, http_port).await {
                         Ok(health) => {
-                            self.state = AppState::Topology(TopologyState::Shard(
+                            self.view = AppView::Topology(TopologyView::Shard(
                                 device.to_string(),
-                                ShardViewState::Loaded(health),
+                                ShardView::Loaded(health),
                             ));
                         }
                         Err(err) => {
-                            self.state = AppState::Topology(TopologyState::Shard(
+                            self.view = AppView::Topology(TopologyView::Shard(
                                 device.to_string(),
-                                ShardViewState::Error(err),
+                                ShardView::Error(err),
                             ));
                         }
                     }
                 } else {
-                    self.state = AppState::Topology(TopologyState::Shard(
+                    self.view = AppView::Topology(TopologyView::Shard(
                         device.to_string(),
-                        ShardViewState::Error(format!("Device '{}' not found in topology", device)),
+                        ShardView::Error(format!("Device '{}' not found in topology", device)),
                     ));
                 }
             } else {
-                self.state = AppState::Topology(TopologyState::Shard(
+                self.view = AppView::Topology(TopologyView::Shard(
                     device.to_string(),
-                    ShardViewState::Error("No topology information available".to_string()),
+                    ShardView::Error("No topology information available".to_string()),
                 ));
             }
         }

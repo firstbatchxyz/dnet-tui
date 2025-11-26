@@ -1,11 +1,11 @@
 mod utils;
-pub use utils::ChatMessage;
+pub use utils::ChatMessage; // used by tests
 use utils::*;
 
 mod styles;
 use styles::*;
 
-use crate::AppState;
+use crate::AppView;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{
     Frame,
@@ -19,8 +19,9 @@ use tokio::sync::mpsc;
 use tui_input::backend::crossterm::EventHandler;
 
 #[derive(Debug)]
-pub struct ChatActiveState {
+pub struct ChatState {
     pub messages: VecDeque<ChatMessage>,
+    /// Whether a response is currently being generated (streamed).
     pub is_generating: bool,
     pub current_response: String,
     pub scroll_cur: u16,
@@ -34,20 +35,23 @@ pub struct ChatActiveState {
     // pub model: String,
     /// Chat message receiver for streaming responses
     pub stream_rx: Option<mpsc::UnboundedReceiver<String>>,
-    /// Chat input area
+    /// Chat input area.
     pub input: tui_input::Input,
+    /// Scrollbar for chat messages.
     pub scroll_bar: ScrollbarState,
+    /// Pending chat message to send
+    pub pending_chat_message: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum ChatState {
+pub enum ChatView {
     Active,
     Error(String),
 }
 
-impl ChatActiveState {
-    pub fn new() -> Self {
-        let mut state = ChatActiveState {
+impl Default for ChatState {
+    fn default() -> Self {
+        let mut state = ChatState {
             messages: VecDeque::new(),
             is_generating: false,
             current_response: String::new(),
@@ -57,23 +61,20 @@ impl ChatActiveState {
             scroll_bar: ScrollbarState::default(),
             stream_rx: None,
             input: tui_input::Input::default(),
+            pending_chat_message: None,
         };
 
         // add welcome message
-        state.add_message(ChatMessage::new_system(
+        state.messages.push_back(ChatMessage::new_system(
             "Welcome to dnet chat! Type your message and press Enter to send.",
         ));
 
         state
     }
-
-    pub fn add_message(&mut self, message: ChatMessage) {
-        self.messages.push_back(message);
-    }
 }
 
 impl crate::App {
-    pub fn draw_chat(&mut self, frame: &mut Frame, state: &ChatState) {
+    pub fn draw_chat(&mut self, frame: &mut Frame, view: &ChatView) {
         let area = frame.area();
 
         let vertical = Layout::vertical([
@@ -85,8 +86,8 @@ impl crate::App {
         let [title_area, messages_area, input_area, footer_area] = vertical.areas(area);
 
         // Title with max tokens info
-        let title = match state {
-            ChatState::Active => Line::from(format!(
+        let title = match view {
+            ChatView::Active => Line::from(format!(
                 "Chatting with {} (max tokens: {})",
                 self.topology
                     .as_ref()
@@ -104,16 +105,16 @@ impl crate::App {
             title_area,
         );
 
-        match state {
-            ChatState::Active => {
+        match view {
+            ChatView::Active => {
                 // Draw messages
                 self.draw_chat_messages(frame, messages_area);
 
                 // Draw input area
-                self.draw_input_area(frame, input_area, self.chat.is_generating);
+                self.draw_input_area(frame, input_area, self.state.chat.is_generating);
 
                 // Footer
-                let footer_text = if self.chat.is_generating {
+                let footer_text = if self.state.chat.is_generating {
                     "Generating... | Ctrl+C: Stop generation | Esc: Exit chat"
                 } else {
                     "Enter: Send | ↑↓: Scroll | Ctrl+L: Clear | Esc: Exit"
@@ -125,7 +126,7 @@ impl crate::App {
                     footer_area,
                 );
             }
-            ChatState::Error(err) => {
+            ChatView::Error(err) => {
                 frame.render_widget(
                     Paragraph::new(format!("Error: {}", err))
                         .block(Block::default().borders(Borders::ALL))
@@ -146,7 +147,7 @@ impl crate::App {
 
     fn draw_chat_messages(&mut self, frame: &mut Frame, area: Rect) {
         let mut lines: Vec<Line> = Vec::new();
-        for msg in &self.chat.messages {
+        for msg in &self.state.chat.messages {
             // role & timestamp header
             let role_text = msg.role.to_uppercase();
             let role_style = match msg.role.as_str() {
@@ -174,14 +175,14 @@ impl crate::App {
         }
 
         // add current response if generating (or has content)
-        if self.chat.is_generating || !self.chat.current_response.is_empty() {
+        if self.state.chat.is_generating || !self.state.chat.current_response.is_empty() {
             lines.push(Line::from(vec![
                 Span::styled(format!("[{}] ", ChatMessage::now()), TIMESTAMP_STYLE),
                 Span::styled("ASSISTANT", ASSISTANT_STYLE),
             ]));
 
             // parse current response for think tags
-            let think_lines = parse_think_tags_to_lines(&self.chat.current_response, true);
+            let think_lines = parse_think_tags_to_lines(&self.state.chat.current_response, true);
             lines.extend_from_slice(&think_lines);
         }
 
@@ -199,34 +200,35 @@ impl crate::App {
             0
         };
 
-        self.chat.scroll_max = max_scroll as u16;
+        self.state.chat.scroll_max = max_scroll as u16;
 
         // sanity check, not needed for our case though
-        self.chat.scroll_cur = self.chat.scroll_cur.min(self.chat.scroll_max);
-        par = par.scroll((self.chat.scroll_cur, 0));
+        self.state.chat.scroll_cur = self.state.chat.scroll_cur.min(self.state.chat.scroll_max);
+        par = par.scroll((self.state.chat.scroll_cur, 0));
         frame.render_widget(par, area);
 
         // update scrollbar
-        self.chat.scroll_bar = self
+        self.state.chat.scroll_bar = self
+            .state
             .chat
             .scroll_bar
-            .content_length(self.chat.scroll_max as usize)
-            .position(self.chat.scroll_cur as usize);
+            .content_length(self.state.chat.scroll_max as usize)
+            .position(self.state.chat.scroll_cur as usize);
         frame.render_stateful_widget(
             Scrollbar::new(ScrollbarOrientation::VerticalRight)
                 .begin_symbol(Some("↑"))
                 .end_symbol(Some("↓")),
             area,
-            &mut self.chat.scroll_bar,
+            &mut self.state.chat.scroll_bar,
         );
     }
 
     fn draw_input_area(&mut self, frame: &mut Frame, area: Rect, is_generating: bool) {
         // keep 2 for borders and 1 for cursor
         let width = area.width.max(3) - 3;
-        let scroll = self.chat.input.visual_scroll(width as usize);
+        let scroll = self.state.chat.input.visual_scroll(width as usize);
 
-        let input = Paragraph::new(self.chat.input.value())
+        let input = Paragraph::new(self.state.chat.input.value())
             .scroll((0, scroll as u16))
             .block(Block::bordered().title("Input"));
         frame.render_widget(input, area);
@@ -234,54 +236,57 @@ impl crate::App {
         if !is_generating {
             // Ratatui hides the cursor unless it's explicitly set. Position the  cursor past the
             // end of the input text and one line down from the border to the input line
-            let x = self.chat.input.visual_cursor().max(scroll) - scroll + 1;
+            let x = self.state.chat.input.visual_cursor().max(scroll) - scroll + 1;
             frame.set_cursor_position((area.x + x as u16, area.y + 1))
         }
     }
 
-    pub fn handle_chat_input(&mut self, key: KeyEvent, state: &ChatState) {
-        if let ChatState::Active = state {
-            if self.chat.is_generating {
+    pub fn handle_chat_input(&mut self, key: KeyEvent, view: &ChatView) {
+        if let ChatView::Active = view {
+            if self.state.chat.is_generating {
                 match (key.modifiers, key.code) {
                     (_, KeyCode::Esc) => {
                         // we allow to exit chat even when generating
                         // the stream may continue in the background
-                        self.state = AppState::Menu;
+                        self.view = AppView::Menu;
                         return;
                     }
                     // scroll up (offset shrinks)
                     (_, KeyCode::Up) => {
-                        if self.chat.scroll_cur > 0 {
-                            self.chat.scroll_cur -= 1;
-                            self.chat.scroll_locked = false;
+                        if self.state.chat.scroll_cur > 0 {
+                            self.state.chat.scroll_cur -= 1;
+                            self.state.chat.scroll_locked = false;
                         }
                     }
                     // scroll down (offset grows)
                     (_, KeyCode::Down) => {
-                        if self.chat.scroll_cur < self.chat.scroll_max {
-                            self.chat.scroll_cur += 1;
-                            self.chat.scroll_locked = false;
+                        if self.state.chat.scroll_cur < self.state.chat.scroll_max {
+                            self.state.chat.scroll_cur += 1;
+                            self.state.chat.scroll_locked = false;
 
                             // lock anyways if we are back at the bottom
-                            if self.chat.scroll_cur == self.chat.scroll_max {
-                                self.chat.scroll_locked = true;
+                            if self.state.chat.scroll_cur == self.state.chat.scroll_max {
+                                self.state.chat.scroll_locked = true;
                             }
                         }
                     }
                     (KeyModifiers::CONTROL, KeyCode::Char('c') | KeyCode::Char('C')) => {
                         // stop generation - TODO: would need to implement cancellation
                         // For now, just return to normal state
-                        if !self.chat.current_response.is_empty() {
-                            self.chat
+                        if !self.state.chat.current_response.is_empty() {
+                            self.state
+                                .chat
                                 .messages
-                                .push_back(ChatMessage::new_assistant(&self.chat.current_response));
+                                .push_back(ChatMessage::new_assistant(
+                                    &self.state.chat.current_response,
+                                ));
                         }
-                        self.chat.current_response.clear();
+                        self.state.chat.current_response.clear();
 
-                        self.chat.is_generating = false;
-                        self.chat.current_response.clear();
-                        self.chat.stream_rx = None; // clear the stream
-                        self.state = AppState::Menu;
+                        self.state.chat.is_generating = false;
+                        self.state.chat.current_response.clear();
+                        self.state.chat.stream_rx = None; // clear the stream
+                        self.view = AppView::Menu;
                         return;
                     }
                     _ => {}
@@ -289,59 +294,60 @@ impl crate::App {
             } else {
                 match (key.modifiers.clone(), key.code.clone()) {
                     (_, KeyCode::Esc) => {
-                        self.state = AppState::Menu;
+                        self.view = AppView::Menu;
                         return; // early return to prevent state from being overwritten
                     }
                     // scroll up (offset shrinks)
                     (_, KeyCode::Up) => {
-                        if self.chat.scroll_cur > 0 {
-                            self.chat.scroll_cur -= 1;
+                        if self.state.chat.scroll_cur > 0 {
+                            self.state.chat.scroll_cur -= 1;
                         }
                     }
                     // scroll down (offset grows)
                     (_, KeyCode::Down) => {
-                        if self.chat.scroll_cur < self.chat.scroll_max {
-                            self.chat.scroll_cur += 1;
+                        if self.state.chat.scroll_cur < self.state.chat.scroll_max {
+                            self.state.chat.scroll_cur += 1;
                         }
                     }
                     (KeyModifiers::CONTROL, KeyCode::Char('l') | KeyCode::Char('L')) => {
-                        self.chat.messages.clear();
-                        self.chat.messages.push_back(ChatMessage::new_system(
+                        self.state.chat.messages.clear();
+                        self.state.chat.messages.push_back(ChatMessage::new_system(
                             "Chat cleared. Start a new conversation!",
                         ));
-                        self.chat.scroll_cur = 0;
+                        self.state.chat.scroll_cur = 0;
                     }
 
                     (_, KeyCode::Enter) => {
-                        let input_buffer = self.chat.input.value().trim();
+                        let input_buffer = self.state.chat.input.value().trim();
                         if !input_buffer.is_empty() {
                             let user_input = input_buffer.to_string();
-                            self.chat.input.reset();
+                            self.state.chat.input.reset();
 
                             // add user message
-                            self.chat
+                            self.state
+                                .chat
                                 .messages
                                 .push_back(ChatMessage::new_user(&user_input));
 
                             // set generating state
-                            self.chat.is_generating = true;
-                            self.chat.scroll_locked = true;
-                            self.chat.current_response.clear();
+                            self.state.chat.is_generating = true;
+                            self.state.chat.scroll_locked = true;
+                            self.state.chat.current_response.clear();
 
                             // store the message for API call
-                            self.pending_chat_message = Some(user_input);
+                            self.state.chat.pending_chat_message = Some(user_input);
                         }
                     }
 
                     (_, _) => {
                         let event = crossterm::event::Event::Key(key);
-                        self.chat.input.handle_event(&event);
+                        self.state.chat.input.handle_event(&event);
                     }
                 }
             }
-        } else if let ChatState::Error(_) = state {
+        } else if let ChatView::Error(_) = view {
             if key.code == KeyCode::Esc {
-                self.state = AppState::Menu;
+                self.view = AppView::Menu;
             }
         }
     }
@@ -368,7 +374,7 @@ fn clean_model_tokens(content: &str) -> String {
 }
 
 // API functions for chat
-impl ChatState {
+impl ChatView {
     pub async fn send_message(
         api_url: &str,
         messages: &VecDeque<ChatMessage>,
@@ -486,12 +492,12 @@ async fn stream_chat_response(
 
 impl crate::App {
     /// Handle async operations for chat state (called during tick).
-    pub(crate) async fn tick_chat(&mut self, state: &ChatState) {
+    pub(crate) async fn tick_chat(&mut self, view: &ChatView) {
         // Handle pending chat message
-        if let Some(_message) = self.pending_chat_message.take() {
-            if let ChatState::Active = state {
+        if let Some(_message) = self.state.chat.pending_chat_message.take() {
+            if let ChatView::Active = view {
                 let Some(model) = self.topology.as_ref().and_then(|t| t.model.clone()) else {
-                    self.state = AppState::Chat(ChatState::Error(
+                    self.view = AppView::Chat(ChatView::Error(
                         // we dont expect to get there at all without a model,
                         // but it still shall be handled
                         "No model configured in topology.".to_string(),
@@ -499,9 +505,9 @@ impl crate::App {
                     return;
                 };
 
-                match ChatState::send_message(
+                match ChatView::send_message(
                     &self.config.api_url(),
-                    &self.chat.messages,
+                    &self.state.chat.messages,
                     &model,
                     self.config.max_tokens,
                     self.config.temperature,
@@ -509,40 +515,42 @@ impl crate::App {
                 .await
                 {
                     Ok(rx) => {
-                        self.chat.stream_rx = Some(rx);
+                        self.state.chat.stream_rx = Some(rx);
                     }
                     Err(err) => {
-                        self.state = AppState::Chat(ChatState::Error(err));
+                        self.view = AppView::Chat(ChatView::Error(err));
                     }
                 }
             }
         }
 
         // Process chat stream - but only if we're still in chat state
-        if let Some(mut rx) = self.chat.stream_rx.take() {
+        if let Some(mut rx) = self.state.chat.stream_rx.take() {
             // Check if we're still in chat state
-            if !matches!(self.state, AppState::Chat(_)) {
+            if !matches!(self.view, AppView::Chat(_)) {
                 // We've exited chat, don't process the stream
                 // FIXME: ??
-                self.chat.stream_rx = None;
+                self.state.chat.stream_rx = None;
             } else {
                 let mut should_clear_rx = false;
                 let mut new_error_state = None;
 
                 // Try to receive messages without blocking
                 while let Ok(chunk) = rx.try_recv() {
-                    if let AppState::Chat(ChatState::Active) = &mut self.state {
+                    if let AppView::Chat(ChatView::Active) = &mut self.view {
                         if chunk == "DONE" {
                             // Finalize the response
-                            if !self.chat.current_response.is_empty() {
-                                self.chat.messages.push_back(ChatMessage {
+                            if !self.state.chat.current_response.is_empty() {
+                                self.state.chat.messages.push_back(ChatMessage {
                                     role: "assistant".to_string(),
-                                    content: self.chat.current_response.clone(),
+                                    content: self.state.chat.current_response.clone(),
+                                    // TODO: store time itself here, convert to string later?
+                                    // or use std instead of chrono?
                                     timestamp: chrono::Local::now().format("%H:%M").to_string(),
                                 });
-                                self.chat.current_response.clear();
+                                self.state.chat.current_response.clear();
                             }
-                            self.chat.is_generating = false;
+                            self.state.chat.is_generating = false;
                             should_clear_rx = true;
                             break;
                         } else if chunk.starts_with("ERROR:") {
@@ -550,11 +558,11 @@ impl crate::App {
                             should_clear_rx = true;
                             break;
                         } else {
-                            self.chat.current_response.push_str(&chunk);
+                            self.state.chat.current_response.push_str(&chunk);
 
                             // auto-scroll during generation to follow the new content
-                            if self.chat.scroll_locked {
-                                self.chat.scroll_cur = self.chat.scroll_max;
+                            if self.state.chat.scroll_locked {
+                                self.state.chat.scroll_cur = self.state.chat.scroll_max;
                             }
                         }
                     }
@@ -562,10 +570,10 @@ impl crate::App {
 
                 // Handle state changes after processing
                 if let Some(error) = new_error_state {
-                    self.state = AppState::Chat(ChatState::Error(error));
+                    self.view = AppView::Chat(ChatView::Error(error));
                 } else if !should_clear_rx {
                     // put the receiver back if we're not done
-                    self.chat.stream_rx = Some(rx);
+                    self.state.chat.stream_rx = Some(rx);
                 }
             }
         }

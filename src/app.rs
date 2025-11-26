@@ -1,104 +1,104 @@
-use crate::chat::{ChatActiveState, ChatState};
-use crate::common::TopologyInfo;
+use crate::chat::{ChatState, ChatView};
+use crate::common::{ApiClient, ModelInfo, TopologyInfo};
 use crate::config::Config;
-use crate::developer::DeveloperState;
-use crate::devices::DevicesState;
-use crate::model::ModelState;
-use crate::settings::{SettingsField, SettingsStatus};
-use crate::topology::TopologyState;
+use crate::developer::{DeveloperState, DeveloperView};
+use crate::devices::{DevicesState, DevicesView};
+use crate::menu::MenuState;
+use crate::model::ModelView;
+use crate::settings::SettingsState;
+use crate::topology::{TopologyState, TopologyView};
 use color_eyre::eyre::Result;
 use crossterm::event::EventStream;
 use std::time::{Duration, Instant};
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum AppState {
+pub enum AppView {
     Menu,
     Settings,
-    Devices(DevicesState),
-    Topology(TopologyState),
-    Model(ModelState),
-    Developer(DeveloperState),
-    Chat(ChatState),
+    Devices(DevicesView),
+    Topology(TopologyView),
+    Model(ModelView),
+    Developer(DeveloperView),
+    Chat(ChatView),
 }
 
-/// 60 FPS = 1000ms / 60 = 16.67ms per frame
-const FPS_RATE: Duration = Duration::from_millis(1000 / 60);
+#[derive(Default, Debug)]
+pub struct AppState {
+    pub menu: MenuState,
+    pub settings: SettingsState,
+    pub devices: DevicesState,
+    pub topology: TopologyState,
+    pub developer: DeveloperState,
+    pub chat: ChatState,
+}
+
+/// 35 FPS = 1000ms / 35
+const FPS_RATE: Duration = Duration::from_millis(1000 / 35);
 
 #[derive(Debug)]
 pub struct App {
+    /// Active application view.
+    pub view: AppView,
+    /// Application state.
+    ///
+    /// This is shared among all views.
+    pub state: AppState,
     /// Is the application running?
     pub is_running: bool,
     /// Event stream.
     pub event_stream: EventStream,
-    /// Configuration.
+    /// Global input buffer for text inputs.
+    pub input_buffer: String,
+    /// Configurations.
     pub config: Config,
-    /// Temporary config for editing.
-    pub temp_config: Config,
-    /// Current application state.
-    pub state: AppState,
-    /// Selected menu item index.
-    pub selected_menu: usize,
-    /// Selected settings field.
-    pub settings_selected_field: SettingsField,
-    /// Status message for the settings view.
-    pub settings_status: SettingsStatus,
-    /// Selected device index in topology view.
-    pub selected_device: usize,
+
+    pub api: ApiClient,
+
     /// Selected model index in load model view.
     pub selected_model: usize,
-    /// Selected developer menu index.
-    pub developer_menu_index: usize,
-    /// Input buffer for editing.
-    pub input_buffer: String,
-    /// Whether we're currently editing a settings field.
-    pub is_editing_setting: bool,
+
     /// Status message.
     pub status_message: String,
     /// Animation start time for sliding text.
     pub animation_start: Instant,
-    /// Last time we checked topology in the menu
-    pub last_topology_check: Instant,
-    /// Last time we refreshed devices
-    pub last_devices_refresh: Instant,
-    /// Pending chat message to send
-    pub pending_chat_message: Option<String>,
-    /// Active chat state, persistent across chat sessions.
-    pub chat: ChatActiveState,
+
     /// Current topology (if present).
     pub topology: Option<TopologyInfo>,
+    /// Available models.
+    ///
+    /// If this is empty, we treat the API to be offline.
+    pub available_models: Vec<ModelInfo>,
+    /// Whether the API is online.
+    pub is_api_online: bool,
+    /// Last time an arrow key was pressed (for ESC debouncing).
+    /// See [`App::handle_crossterm_events`] for details.
+    pub last_arrow_key_time: Instant,
 }
 
 impl App {
     /// Construct a new instance of [`App`].
     pub fn new() -> Result<Self> {
-        Self::new_with_state(AppState::Menu)
+        Self::new_at_view(AppView::Menu)
     }
 
-    pub fn new_with_state(state: AppState) -> Result<Self> {
+    pub fn new_at_view(view: AppView) -> Result<Self> {
         let config = Config::load()?;
         Ok(Self {
             is_running: false,
+
+            api: ApiClient::new(&config.api_host, config.api_port),
             event_stream: EventStream::new(),
-            temp_config: config.clone(),
             config,
-            state,
-            settings_status: SettingsStatus::None,
-            settings_selected_field: SettingsField::Host,
-            selected_menu: 0,
-            selected_device: 0,
+            view,
+            state: AppState::default(),
             selected_model: 0,
-            developer_menu_index: 0,
+            topology: None,
+            is_api_online: false,
+            available_models: Vec::new(),
             input_buffer: String::new(),
-            is_editing_setting: false,
             status_message: String::new(),
             animation_start: Instant::now(),
-            // make this older to trigger immediate check
-            last_topology_check: Instant::now() - Duration::from_secs(10),
-            // make this older to trigger immediate refresh
-            last_devices_refresh: Instant::now() - Duration::from_secs(10),
-            pending_chat_message: None,
-            chat: ChatActiveState::new(),
-            topology: None,
+            last_arrow_key_time: Instant::now(),
         })
     }
 
@@ -114,34 +114,32 @@ impl App {
             terminal.draw(|frame| self.draw(frame))?;
 
             // process ticks
-            match self.state.clone() {
-                AppState::Menu => {
+            match self.view.clone() {
+                AppView::Menu => {
                     self.tick_menu().await;
                 }
-                AppState::Devices(devices_state) => {
+                AppView::Devices(devices_state) => {
                     self.tick_devices(&devices_state).await;
                 }
-                AppState::Topology(topology_state) => {
+                AppView::Topology(topology_state) => {
                     self.tick_topology(&topology_state).await;
                 }
-                AppState::Model(model_state) => {
+                AppView::Model(model_state) => {
                     self.tick_model(&model_state).await;
                 }
-                AppState::Developer(developer_state) => {
+                AppView::Developer(developer_state) => {
                     self.tick_developer(&developer_state).await;
                 }
-                AppState::Chat(chat_state) => {
+                AppView::Chat(chat_state) => {
                     self.tick_chat(&chat_state).await;
                 }
-                _ => {
-                    // no async operations for Settings
-                }
+                _ => {}
             }
 
             // handle events with timeout to allow animation updates
             tokio::select! {
                 _ = interval.tick() => {
-                    // will trigger a redraw for animation by looping
+                    // trigger a redraw for animation by looping
                     continue;
                 }
                 result = self.handle_crossterm_events() => {
@@ -149,19 +147,22 @@ impl App {
                 }
             }
         }
+
         Ok(())
     }
 
     /// Renders the user interface.
+    ///
+    /// TODO: separate footer and header here, and give the frame only the body area.
     fn draw(&mut self, frame: &mut ratatui::Frame) {
-        match self.state.clone() {
-            AppState::Menu => self.draw_menu(frame),
-            AppState::Settings => self.draw_settings(frame),
-            AppState::Devices(state) => self.draw_devices(frame, &state),
-            AppState::Topology(state) => self.draw_topology(frame, &state),
-            AppState::Model(state) => self.draw_model(frame, &state),
-            AppState::Developer(state) => self.draw_developer(frame, &state),
-            AppState::Chat(state) => self.draw_chat(frame, &state),
+        match self.view.clone() {
+            AppView::Menu => self.draw_menu(frame),
+            AppView::Settings => self.draw_settings(frame),
+            AppView::Devices(view) => self.draw_devices(frame, &view),
+            AppView::Topology(view) => self.draw_topology(frame, &view),
+            AppView::Model(view) => self.draw_model(frame, &view),
+            AppView::Developer(view) => self.draw_developer(frame, &view),
+            AppView::Chat(view) => self.draw_chat(frame, &view),
         }
     }
 
@@ -173,16 +174,42 @@ impl App {
         let event = self.event_stream.next().fuse().await;
         match event {
             Some(Ok(evt)) => match evt {
-                Event::Key(key) if key.kind == KeyEventKind::Press => match &self.state.clone() {
-                    AppState::Menu => self.handle_menu_input(key),
-                    AppState::Settings => self.handle_settings_input(key),
-                    AppState::Devices(state) => self.handle_devices_input(key, state),
-                    AppState::Topology(state) => self.handle_topology_input(key, state),
-                    AppState::Model(state) => self.handle_model_input(key, state),
-                    AppState::Developer(state) => self.handle_developer_input(key, state),
-                    AppState::Chat(state) => self.handle_chat_input(key, state),
-                },
-                Event::Mouse(_) => {} // TODO: do we want mouse events?
+                Event::Key(key) if key.kind == KeyEventKind::Press => {
+                    use crossterm::event::KeyCode;
+
+                    // track arrow key presses for ESC debouncing
+                    if matches!(
+                        key.code,
+                        KeyCode::Up | KeyCode::Down | KeyCode::Left | KeyCode::Right
+                    ) {
+                        self.last_arrow_key_time = Instant::now();
+                    }
+
+                    // debounce ESC key: ignore if it comes just after an arrow key
+                    // this prevents spurious ESC from arrow key escape sequences under load
+                    // see: https://github.com/firstbatchxyz/dnet-tui/issues/15
+                    //
+                    // note that this will still cause the event queue to be filled up,
+                    // which may delay other inputs, but it's a reasonable trade-off
+                    if matches!(key.code, KeyCode::Esc) {
+                        if Instant::now().duration_since(self.last_arrow_key_time)
+                            < Duration::from_millis(50)
+                        {
+                            return Ok(());
+                        }
+                    }
+
+                    match &self.view.clone() {
+                        AppView::Menu => self.handle_menu_input(key),
+                        AppView::Settings => self.handle_settings_input(key),
+                        AppView::Devices(view) => self.handle_devices_input(key, view),
+                        AppView::Topology(view) => self.handle_topology_input(key, view),
+                        AppView::Model(view) => self.handle_model_input(key, view),
+                        AppView::Developer(view) => self.handle_developer_input(key, view),
+                        AppView::Chat(view) => self.handle_chat_input(key, view),
+                    }
+                }
+                Event::Mouse(_) => {} // no mouse events
                 Event::Resize(_, _) => {}
                 _ => {}
             },

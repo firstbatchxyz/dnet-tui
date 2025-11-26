@@ -7,9 +7,9 @@ use ratatui::{
     widgets::{Block, Borders, List, ListItem, Paragraph},
 };
 
-use crate::AppState;
+use crate::AppView;
 
-use super::DeveloperState;
+use super::DeveloperView;
 
 impl crate::App {
     pub(super) fn draw_developer_menu(&mut self, frame: &mut Frame) {
@@ -33,7 +33,7 @@ impl crate::App {
             .iter()
             .enumerate()
             .map(|(i, item)| {
-                let style = if i == self.developer_menu_index {
+                let style = if i == self.state.developer.menu_index {
                     Style::default()
                         .fg(Color::Black)
                         .bg(Color::Yellow)
@@ -58,15 +58,15 @@ impl crate::App {
     pub(super) fn handle_developer_menu_input(&mut self, key: KeyEvent) {
         match (key.modifiers, key.code) {
             (_, KeyCode::Esc) => {
-                self.state = AppState::Menu;
-                self.developer_menu_index = 0;
+                self.view = AppView::Menu;
+                self.state.developer.menu_index = 0;
             }
             (KeyModifiers::CONTROL, KeyCode::Char('c') | KeyCode::Char('C')) => self.quit(),
             (_, KeyCode::Enter) => {
                 // Only one option now - Manual Layer Assignment
-                if self.developer_menu_index == 0 {
-                    self.state = AppState::Developer(DeveloperState::ManualAssignment(
-                        super::ManualAssignmentState::SelectingModel,
+                if self.state.developer.menu_index == 0 {
+                    self.view = AppView::Developer(DeveloperView::ManualAssignment(
+                        super::ManualAssignmentView::SelectingModel,
                     ));
                     self.selected_model = 0;
                 }
