@@ -50,7 +50,7 @@ We also have window-specific tests under [`tests`](./tests/) folder.
 > cargo run 2> debug.log
 > ```
 >
-> Or, open another terminal and identify it with `tty` command, which returns something like ` /dev/pts/0`. Then, forward to logs there:
+> Or, open another terminal and run the `tty` command, which returns something like `/dev/pts/0`. Then, forward to logs there:
 >
 > ```sh
 > cargo run 2> /dev/pts/0

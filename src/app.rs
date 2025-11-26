@@ -67,9 +67,9 @@ pub struct App {
     /// Available models.
     ///
     /// If this is empty, we treat the API to be offline.
-    /// TODO: kinda smelly to do that
     pub available_models: Vec<ModelInfo>,
-
+    /// Whether the API is online.
+    pub is_api_online: bool,
     /// Last time an arrow key was pressed (for ESC debouncing).
     /// See [`App::handle_crossterm_events`] for details.
     pub last_arrow_key_time: Instant,
@@ -85,6 +85,7 @@ impl App {
         let config = Config::load()?;
         Ok(Self {
             is_running: false,
+
             api: ApiClient::new(&config.api_host, config.api_port),
             event_stream: EventStream::new(),
             config,
@@ -92,6 +93,7 @@ impl App {
             state: AppState::default(),
             selected_model: 0,
             topology: None,
+            is_api_online: false,
             available_models: Vec::new(),
             input_buffer: String::new(),
             status_message: String::new(),
@@ -150,6 +152,8 @@ impl App {
     }
 
     /// Renders the user interface.
+    ///
+    /// TODO: separate footer and header here, and give the frame only the body area.
     fn draw(&mut self, frame: &mut ratatui::Frame) {
         match self.view.clone() {
             AppView::Menu => self.draw_menu(frame),

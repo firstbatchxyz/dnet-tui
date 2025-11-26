@@ -140,7 +140,7 @@ impl crate::App {
             }
             ManualAssignmentView::LoadingModel(_) => "Loading model...",
             ManualAssignmentView::FetchingShards(_) => "Fetching shards...",
-            ManualAssignmentView::Submitting { .. } => "Submitting topology...",
+            ManualAssignmentView::Submitting => "Submitting topology...",
         };
 
         frame.render_widget(
@@ -567,14 +567,14 @@ impl crate::App {
                             }
                             Err(err) => {
                                 self.view = AppView::Developer(DeveloperView::ManualAssignment(
-                                    ManualAssignmentView::Error(format!("{:#?}", err.to_string())),
+                                    ManualAssignmentView::Error(format!("{:#?}", err)),
                                 ));
                             }
                         }
                     }
                     Err(err) => {
                         self.view = AppView::Developer(DeveloperView::ManualAssignment(
-                            ManualAssignmentView::Error(format!("{:#?}", err.to_string())),
+                            ManualAssignmentView::Error(format!("{:#?}", err)),
                         ));
                     }
                 }
@@ -598,7 +598,7 @@ impl crate::App {
                     }
                     Err(err) => {
                         self.view = AppView::Developer(DeveloperView::ManualAssignment(
-                            ManualAssignmentView::Error(format!("{:#?}", err.to_string())),
+                            ManualAssignmentView::Error(format!("{:#?}", err)),
                         ));
                     }
                 }
@@ -612,7 +612,7 @@ impl crate::App {
                         ));
                         // Fetch topology after successful manual assignment
                         if let Ok(topology) = self.api.get_topology().await {
-                            self.topology = Some(topology);
+                            self.topology = topology;
                         }
                     }
                     Err(err) => {

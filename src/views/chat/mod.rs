@@ -544,6 +544,8 @@ impl crate::App {
                                 self.state.chat.messages.push_back(ChatMessage {
                                     role: "assistant".to_string(),
                                     content: self.state.chat.current_response.clone(),
+                                    // TODO: store time itself here, convert to string later?
+                                    // or use std instead of chrono?
                                     timestamp: chrono::Local::now().format("%H:%M").to_string(),
                                 });
                                 self.state.chat.current_response.clear();

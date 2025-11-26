@@ -23,6 +23,12 @@ impl ApiClient {
         }
     }
 
+    pub async fn is_healthy(&self) -> color_eyre::Result<bool> {
+        let url = format!("{}/health", self.base_url);
+        let response = self.client.get(&url).send().await?;
+        Ok(response.status().is_success())
+    }
+
     pub async fn get_models(&self) -> color_eyre::Result<Vec<ModelInfo>> {
         #[derive(Deserialize, Serialize)]
         pub struct ListModelsResponse {
@@ -33,30 +39,36 @@ impl ApiClient {
         let url = format!("{}/v1/models", self.base_url);
         let response = self.client.get(&url).send().await?;
         if !response.status().is_success() {
-            color_eyre::eyre::bail!("Failed to get models: {}", response.status());
+            color_eyre::eyre::bail!(
+                "Failed to get models: ({}) {}",
+                response.status(),
+                response.text().await?
+            );
         }
 
         let models: ListModelsResponse = response.json().await?;
         Ok(models.data)
     }
 
-    pub async fn is_healthy(&self) -> color_eyre::Result<bool> {
-        let url = format!("{}/v1/health", self.base_url);
-        let response = self.client.get(&url).send().await?;
-        Ok(response.status().is_success())
-    }
-
-    pub async fn get_topology(&self) -> color_eyre::Result<TopologyInfo> {
+    pub async fn get_topology(&self) -> color_eyre::Result<Option<TopologyInfo>> {
         let url = format!("{}/v1/topology", self.base_url);
         let response = self.client.get(&url).send().await?;
-        if !response.status().is_success() {
-            color_eyre::eyre::bail!("Failed to get topology: {}", response.text().await?)
-        }
 
-        response
-            .json()
-            .await
-            .map_err(|e| color_eyre::eyre::eyre!("Failed to parse topology response: {}", e))
+        if response.status().is_success() {
+            let topology = response
+                .json::<TopologyInfo>()
+                .await
+                .map_err(|e| color_eyre::eyre::eyre!("Failed to parse topology response: {}", e))?;
+            Ok(Some(topology))
+        } else if response.status() == reqwest::StatusCode::BAD_REQUEST {
+            Ok(None)
+        } else {
+            color_eyre::eyre::bail!(
+                "Failed to get topology: ({}) {}",
+                response.status(),
+                response.text().await?
+            )
+        }
     }
 
     pub async fn get_devices(&self) -> color_eyre::Result<HashMap<String, DeviceProperties>> {
@@ -67,7 +79,7 @@ impl ApiClient {
         let url = format!("{}/v1/devices", self.base_url);
         let response = self.client.get(&url).send().await?;
         if !response.status().is_success() {
-            color_eyre::eyre::bail!("Failed to get devices: {}", response.status());
+            color_eyre::eyre::bail!("Failed to get devices: {}", response.text().await?);
         }
 
         let devices_response: DevicesResponse = response.json().await?;
@@ -103,7 +115,7 @@ impl ApiClient {
         config: &crate::Config,
         model: &str,
     ) -> color_eyre::Result<TopologyInfo> {
-        let url = format!("{}/v1/prepare_topology", config.api_url());
+        let url = format!("{}/v1/prepare_topology", self.base_url);
         let body = serde_json::json!({
             "model": model.to_string(),
             "kv_bits": config.kv_bits,

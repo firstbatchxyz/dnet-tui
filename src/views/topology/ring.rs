@@ -412,7 +412,7 @@ impl crate::App {
     async fn load_topology(&mut self) {
         match self.api.get_topology().await {
             Ok(topology) => {
-                self.topology = Some(topology);
+                self.topology = topology;
                 self.view = AppView::Topology(super::TopologyView::Ring(TopologyRingView::Loaded));
             }
             Err(err) => {
