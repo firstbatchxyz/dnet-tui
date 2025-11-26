@@ -7,7 +7,7 @@ A terminal user interface (TUI) application built with Rust for [dnet](https://g
 Install using `cargo`:
 
 ```sh
-cargo install https://github.com/firstbatchxyz/dnet-tui.git
+cargo install --git https://github.com/firstbatchxyz/dnet-tui.git
 ```
 
 > You can install from source as well:
