@@ -354,7 +354,7 @@ impl App {
             }
             MenuItem::UnloadModel => {
                 // if topology not loaded, do nothing (item is disabled)
-                if !model_loaded && topology_loaded {
+                if model_loaded && topology_loaded {
                     self.view =
                         AppView::Model(super::model::ModelView::Unload(UnloadModelView::Unloading));
                     self.status_message.clear();

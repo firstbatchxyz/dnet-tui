@@ -32,8 +32,8 @@ pub struct AppState {
     pub chat: ChatState,
 }
 
-/// 60 FPS = 1000ms / 60 = 16.67ms per frame
-const FPS_RATE: Duration = Duration::from_millis(1000 / 60);
+/// 35 FPS = 1000ms / 35
+const FPS_RATE: Duration = Duration::from_millis(1000 / 35);
 
 #[derive(Debug)]
 pub struct App {
@@ -65,7 +65,14 @@ pub struct App {
     /// Current topology (if present).
     pub topology: Option<TopologyInfo>,
     /// Available models.
+    ///
+    /// If this is empty, we treat the API to be offline.
+    /// TODO: kinda smelly to do that
     pub available_models: Vec<ModelInfo>,
+
+    /// Last time an arrow key was pressed (for ESC debouncing).
+    /// See [`App::handle_crossterm_events`] for details.
+    pub last_arrow_key_time: Instant,
 }
 
 impl App {
@@ -89,6 +96,7 @@ impl App {
             input_buffer: String::new(),
             status_message: String::new(),
             animation_start: Instant::now(),
+            last_arrow_key_time: Instant::now(),
         })
     }
 
@@ -162,16 +170,42 @@ impl App {
         let event = self.event_stream.next().fuse().await;
         match event {
             Some(Ok(evt)) => match evt {
-                Event::Key(key) if key.kind == KeyEventKind::Press => match &self.view.clone() {
-                    AppView::Menu => self.handle_menu_input(key),
-                    AppView::Settings => self.handle_settings_input(key),
-                    AppView::Devices(view) => self.handle_devices_input(key, view),
-                    AppView::Topology(view) => self.handle_topology_input(key, view),
-                    AppView::Model(view) => self.handle_model_input(key, view),
-                    AppView::Developer(view) => self.handle_developer_input(key, view),
-                    AppView::Chat(view) => self.handle_chat_input(key, view),
-                },
-                Event::Mouse(_) => {} // TODO: do we want mouse events?
+                Event::Key(key) if key.kind == KeyEventKind::Press => {
+                    use crossterm::event::KeyCode;
+
+                    // track arrow key presses for ESC debouncing
+                    if matches!(
+                        key.code,
+                        KeyCode::Up | KeyCode::Down | KeyCode::Left | KeyCode::Right
+                    ) {
+                        self.last_arrow_key_time = Instant::now();
+                    }
+
+                    // debounce ESC key: ignore if it comes just after an arrow key
+                    // this prevents spurious ESC from arrow key escape sequences under load
+                    // see: https://github.com/firstbatchxyz/dnet-tui/issues/15
+                    //
+                    // note that this will still cause the event queue to be filled up,
+                    // which may delay other inputs, but it's a reasonable trade-off
+                    if matches!(key.code, KeyCode::Esc) {
+                        if Instant::now().duration_since(self.last_arrow_key_time)
+                            < Duration::from_millis(50)
+                        {
+                            return Ok(());
+                        }
+                    }
+
+                    match &self.view.clone() {
+                        AppView::Menu => self.handle_menu_input(key),
+                        AppView::Settings => self.handle_settings_input(key),
+                        AppView::Devices(view) => self.handle_devices_input(key, view),
+                        AppView::Topology(view) => self.handle_topology_input(key, view),
+                        AppView::Model(view) => self.handle_model_input(key, view),
+                        AppView::Developer(view) => self.handle_developer_input(key, view),
+                        AppView::Chat(view) => self.handle_chat_input(key, view),
+                    }
+                }
+                Event::Mouse(_) => {} // no mouse events
                 Event::Resize(_, _) => {}
                 _ => {}
             },

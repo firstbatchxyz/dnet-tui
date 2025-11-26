@@ -7,7 +7,7 @@ use ratatui::{
     layout::{Constraint, Layout},
     style::{Color, Modifier, Style, Stylize},
     text::Line,
-    widgets::{Block, Paragraph},
+    widgets::Paragraph,
 };
 
 #[derive(Default, Debug)]
@@ -191,11 +191,7 @@ impl App {
             body_lines.insert(i * 2 - 1, Line::from(" "));
         }
 
-        frame.render_widget(
-            Paragraph::new(body_lines)
-                .block(Block::default().title("Use ↑↓ to select field, Enter to edit, s to save")),
-            settings_area,
-        );
+        frame.render_widget(Paragraph::new(body_lines), settings_area);
 
         // Footer
         let footer_text = "Press Esc to go back  |  Enter to edit field  |  s to save";

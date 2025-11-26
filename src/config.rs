@@ -7,9 +7,9 @@ use crate::settings::SettingsField;
 
 #[derive(Default, Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
 pub enum KVBits {
-    #[default]
     #[serde(rename = "4bit")]
     Bits4,
+    #[default]
     #[serde(rename = "8bit")]
     Bits8,
     #[serde(rename = "fp16")]

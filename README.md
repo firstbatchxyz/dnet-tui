@@ -32,6 +32,30 @@ dnet-tui
 > cargo run
 > ```
 
+## Testing
+
+Run unit tests with:
+
+```sh
+cargo test
+```
+
+We also have window-specific tests under [`tests`](./tests/) folder.
+
+> [!TIP]
+>
+> To print logs, you can run the program with
+>
+> ```sh
+> cargo run 2> debug.log
+> ```
+>
+> Or, open another terminal and identify it with `tty` command, which returns something like ` /dev/pts/0`. Then, forward to logs there:
+>
+> ```sh
+> cargo run 2> /dev/pts/0
+> ```
+
 ## Contributions
 
 The code is structured so that all "windows" are thought of as their own modules, and they implement the required methods via `impl App` within their own file, with respect to visibility. Each window should also have a `*View` enum (for the sub-windows if required) and a `*State` struct that is an attribute of `AppState`.

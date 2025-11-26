@@ -3,3 +3,5 @@
 # local config for testing
 dnet.json
 Cargo.lock
+
+debug.log

@@ -2,6 +2,7 @@ mod manual;
 pub use manual::*;
 
 mod menu;
+mod utils;
 
 use crossterm::event::KeyEvent;
 use ratatui::Frame;
