@@ -1,12 +1,13 @@
+use super::ModelView;
 use crate::common::LoadModelResponse;
 use crate::{App, AppView};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{
     Frame,
     layout::{Constraint, Layout},
-    style::{Color, Modifier, Style, Stylize},
+    style::{Color, Style, Stylize},
     text::Line,
-    widgets::{Block, List, ListItem, Paragraph},
+    widgets::{Block, Paragraph},
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -80,26 +81,16 @@ impl App {
     }
 
     fn draw_model_selection(&mut self, frame: &mut Frame, area: ratatui::layout::Rect) {
-        let model_items: Vec<ListItem> = self
+        let model_names: Vec<String> = self
             .available_models
             .iter()
-            .enumerate()
-            .map(|(i, model)| {
-                let style = if i == self.selected_model {
-                    Style::default()
-                        .fg(Color::Black)
-                        .bg(Color::Cyan)
-                        .add_modifier(Modifier::BOLD)
-                } else {
-                    Style::default()
-                };
-                ListItem::new(format!("  {}", model.id)).style(style)
-            })
+            .map(|model| model.id.clone())
             .collect();
 
-        let list = List::new(model_items).block(Block::bordered().title("Select a model"));
+        let selector = crate::wigets::ModelSelector::new(&model_names)
+            .block(Block::bordered().title("Select a model"));
 
-        frame.render_widget(list, area);
+        frame.render_stateful_widget(selector, area, &mut self.model_selector_state);
     }
 
     fn draw_load_success(
@@ -170,11 +161,7 @@ impl App {
     pub(super) fn handle_load_model_input(&mut self, key: KeyEvent, state: &LoadModelView) {
         match state {
             LoadModelView::SelectingModel => match (key.modifiers, key.code) {
-                (_, KeyCode::Esc) => {
-                    self.view = AppView::Menu;
-                    self.selected_model = 0;
-                }
-                (KeyModifiers::CONTROL, KeyCode::Char('c') | KeyCode::Char('C')) => self.quit(),
+                (_, KeyCode::Esc) => self.view = AppView::Menu,
                 (_, KeyCode::Up) => self.model_up(),
                 (_, KeyCode::Down) => self.model_down(),
                 (_, KeyCode::Enter) => self.start_model_load(),
@@ -182,11 +169,7 @@ impl App {
             },
             LoadModelView::Error(_) | LoadModelView::Success(_) => {
                 match (key.modifiers, key.code) {
-                    (_, KeyCode::Esc) => {
-                        self.view = AppView::Menu;
-                        self.selected_model = 0;
-                    }
-                    (KeyModifiers::CONTROL, KeyCode::Char('c') | KeyCode::Char('C')) => self.quit(),
+                    (_, KeyCode::Esc) => self.view = AppView::Menu,
                     _ => {}
                 }
             }
@@ -206,24 +189,19 @@ impl App {
     }
 
     fn model_up(&mut self) {
-        if self.selected_model > 0 {
-            self.selected_model -= 1;
-        }
+        self.model_selector_state.move_up();
     }
 
     fn model_down(&mut self) {
-        if !self.available_models.is_empty()
-            && self.selected_model < self.available_models.len() - 1
-        {
-            self.selected_model += 1;
-        }
+        self.model_selector_state
+            .move_down(self.available_models.len());
     }
 
     fn start_model_load(&mut self) {
-        let model = self.available_models[self.selected_model].id.clone();
-        self.view = AppView::Model(super::ModelView::Load(LoadModelView::PreparingTopology(
-            model,
-        )));
+        let model = self.available_models[self.model_selector_state.selected()]
+            .id
+            .clone();
+        self.view = AppView::Model(ModelView::Load(LoadModelView::PreparingTopology(model)));
     }
 
     /// Handle async operations for load model state (called during tick).
@@ -233,29 +211,28 @@ impl App {
                 match self.api.prepare_topology(&self.config, model).await {
                     Ok(topology) => {
                         // move to loading model state and trigger load
-                        self.view = AppView::Model(super::ModelView::Load(
-                            LoadModelView::LoadingModel(model.clone()),
-                        ));
+                        self.view = AppView::Model(ModelView::Load(LoadModelView::LoadingModel(
+                            model.clone(),
+                        )));
                         self.topology = Some(topology);
 
                         // load the model
                         match self.api.load_model(&model).await {
                             Ok(load_response) => {
-                                self.view = AppView::Model(super::ModelView::Load(
+                                self.view = AppView::Model(ModelView::Load(
                                     LoadModelView::Success(load_response),
                                 ));
                             }
                             Err(err) => {
-                                self.view = AppView::Model(super::ModelView::Load(
-                                    LoadModelView::Error(err.to_string()),
-                                ));
+                                self.view = AppView::Model(ModelView::Load(LoadModelView::Error(
+                                    err.to_string(),
+                                )));
                             }
                         }
                     }
                     Err(err) => {
-                        self.view = AppView::Model(super::ModelView::Load(LoadModelView::Error(
-                            err.to_string(),
-                        )));
+                        self.view =
+                            AppView::Model(ModelView::Load(LoadModelView::Error(err.to_string())));
                     }
                 }
             }

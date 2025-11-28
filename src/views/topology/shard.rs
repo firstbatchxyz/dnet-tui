@@ -1,6 +1,6 @@
 use crate::common::ShardHealthResponse;
 use crate::{App, app::AppView, views::topology::TopologyView};
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::{
     Frame,
     layout::{Constraint, Layout},
@@ -200,8 +200,8 @@ impl App {
     }
 
     pub(super) fn handle_shard_interaction_input(&mut self, key: KeyEvent) {
-        match (key.modifiers, key.code) {
-            (_, KeyCode::Esc) => {
+        match key.code {
+            KeyCode::Esc => {
                 // go back to topology view
                 if let AppView::Topology(TopologyView::Shard(_, _)) = &self.view {
                     self.view = AppView::Topology(super::TopologyView::Ring(
@@ -209,7 +209,6 @@ impl App {
                     ));
                 }
             }
-            (KeyModifiers::CONTROL, KeyCode::Char('c') | KeyCode::Char('C')) => self.quit(),
             _ => {}
         }
     }

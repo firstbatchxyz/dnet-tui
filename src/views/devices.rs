@@ -1,6 +1,6 @@
 use crate::common::DeviceProperties;
 use crate::{App, app::AppView};
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::{
     Frame,
     layout::{Constraint, Layout},
@@ -171,7 +171,6 @@ impl App {
             (_, KeyCode::Esc) => {
                 self.view = AppView::Menu;
             }
-            (KeyModifiers::CONTROL, KeyCode::Char('c') | KeyCode::Char('C')) => self.quit(),
             _ => {}
         }
     }

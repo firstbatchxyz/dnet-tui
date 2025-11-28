@@ -5,7 +5,7 @@ use crate::model::{LoadModelView, UnloadModelView};
 use crate::topology::TopologyView;
 use crate::views::topology::TopologyRingView;
 use crate::{App, AppView};
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::text::Span;
 use ratatui::{
     Frame,
@@ -312,12 +312,11 @@ impl App {
     }
 
     pub fn handle_menu_input(&mut self, key: KeyEvent) {
-        match (key.modifiers, key.code) {
-            (_, KeyCode::Esc)
-            | (KeyModifiers::CONTROL, KeyCode::Char('c') | KeyCode::Char('C')) => self.quit(),
-            (_, KeyCode::Up) => self.menu_up(),
-            (_, KeyCode::Down) => self.menu_down(),
-            (_, KeyCode::Enter) => self.select_menu_item(),
+        match key.code {
+            KeyCode::Esc => self.quit(),
+            KeyCode::Up => self.menu_up(),
+            KeyCode::Down => self.menu_down(),
+            KeyCode::Enter => self.select_menu_item(),
             _ => {}
         }
     }
@@ -364,7 +363,7 @@ impl App {
                     self.view = AppView::Model(super::model::ModelView::Load(
                         LoadModelView::SelectingModel,
                     ));
-                    self.selected_model = 0;
+                    self.model_selector_state.reset();
                     self.status_message.clear();
                 }
             }

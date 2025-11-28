@@ -1,4 +1,4 @@
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::{
     Frame,
     layout::{Constraint, Layout},
@@ -61,14 +61,13 @@ impl crate::App {
                 self.view = AppView::Menu;
                 self.state.developer.menu_index = 0;
             }
-            (KeyModifiers::CONTROL, KeyCode::Char('c') | KeyCode::Char('C')) => self.quit(),
             (_, KeyCode::Enter) => {
                 // Only one option now - Manual Layer Assignment
                 if self.state.developer.menu_index == 0 {
                     self.view = AppView::Developer(DeveloperView::ManualAssignment(
                         super::ManualAssignmentView::SelectingModel,
                     ));
-                    self.selected_model = 0;
+                    self.model_selector_state.reset();
                 }
             }
             _ => {}

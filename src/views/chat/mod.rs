@@ -115,7 +115,7 @@ impl crate::App {
 
                 // Footer
                 let footer_text = if self.state.chat.is_generating {
-                    "Generating... | Ctrl+C: Stop generation | Esc: Exit chat"
+                    "Generating... | Ctrl+Q: Abort generation | Esc: Exit"
                 } else {
                     "Enter: Send | ↑↓: Scroll | Ctrl+L: Clear | Esc: Exit"
                 };
@@ -270,9 +270,8 @@ impl crate::App {
                             }
                         }
                     }
-                    (KeyModifiers::CONTROL, KeyCode::Char('c') | KeyCode::Char('C')) => {
-                        // stop generation - TODO: would need to implement cancellation
-                        // For now, just return to normal state
+                    (KeyModifiers::CONTROL, KeyCode::Char('q') | KeyCode::Char('Q')) => {
+                        // abort generation - TODO: would need to implement cancellation
                         if !self.state.chat.current_response.is_empty() {
                             self.state
                                 .chat
@@ -283,11 +282,13 @@ impl crate::App {
                         }
                         self.state.chat.current_response.clear();
 
+                        self.state
+                            .chat
+                            .messages
+                            .push_back(ChatMessage::new_system("Generation aborted by user."));
                         self.state.chat.is_generating = false;
                         self.state.chat.current_response.clear();
                         self.state.chat.stream_rx = None; // clear the stream
-                        self.view = AppView::Menu;
-                        return;
                     }
                     _ => {}
                 }

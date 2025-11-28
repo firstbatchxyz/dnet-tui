@@ -1,6 +1,6 @@
 use crate::config::Config;
 use crate::{App, AppView};
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::text::Span;
 use ratatui::{
     Frame,
@@ -223,7 +223,6 @@ impl App {
                     self.view = AppView::Menu;
                     self.state.settings.status.clear();
                 }
-                (KeyModifiers::CONTROL, KeyCode::Char('c') | KeyCode::Char('C')) => self.quit(),
                 (_, KeyCode::Up) => self.settings_up(),
                 (_, KeyCode::Down) => self.settings_down(),
                 (_, KeyCode::Enter) => self.start_edit(),

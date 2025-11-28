@@ -152,30 +152,16 @@ impl crate::App {
     }
 
     fn draw_model_selection_for_manual(&mut self, frame: &mut Frame, area: Rect) {
-        let model_items: Vec<ListItem> = self
+        let model_names: Vec<String> = self
             .available_models
             .iter()
-            .enumerate()
-            .map(|(i, model)| {
-                let style = if i == self.selected_model {
-                    Style::default()
-                        .fg(Color::Black)
-                        .bg(Color::Cyan)
-                        .add_modifier(Modifier::BOLD)
-                } else {
-                    Style::default()
-                };
-                ListItem::new(format!("  {}", model.id)).style(style)
-            })
+            .map(|model| model.id.clone())
             .collect();
 
-        let list = List::new(model_items).block(
-            Block::default()
-                .borders(Borders::ALL)
-                .title("Select a model"),
-        );
+        let selector = crate::wigets::ModelSelector::new(&model_names)
+            .block(Block::bordered().title("Select a model"));
 
-        frame.render_widget(list, area);
+        frame.render_stateful_widget(selector, area, &mut self.model_selector_state);
     }
 
     fn draw_layer_assignment_interface(&mut self, frame: &mut Frame, area: Rect) {
@@ -307,24 +293,21 @@ impl crate::App {
         view: &ManualAssignmentView,
     ) {
         match view {
-            ManualAssignmentView::SelectingModel => match (key.modifiers, key.code) {
-                (_, KeyCode::Esc) => {
+            ManualAssignmentView::SelectingModel => match key.code {
+                KeyCode::Esc => {
                     self.view = AppView::Developer(DeveloperView::Menu);
                 }
-                (_, KeyCode::Up) => {
-                    if self.selected_model > 0 {
-                        self.selected_model -= 1;
-                    }
+                KeyCode::Up => {
+                    self.model_selector_state.move_up();
                 }
-                (_, KeyCode::Down) => {
-                    if !self.available_models.is_empty()
-                        && self.selected_model < self.available_models.len() - 1
-                    {
-                        self.selected_model += 1;
-                    }
+                KeyCode::Down => {
+                    self.model_selector_state
+                        .move_down(self.available_models.len());
                 }
-                (_, KeyCode::Enter) => {
-                    let model = self.available_models[self.selected_model].id.clone();
+                KeyCode::Enter => {
+                    let model = self.available_models[self.model_selector_state.selected()]
+                        .id
+                        .clone();
                     self.view = AppView::Developer(DeveloperView::ManualAssignment(
                         ManualAssignmentView::FetchingShards(model),
                     ));
@@ -410,11 +393,6 @@ impl crate::App {
                         _ => {}
                     }
                 }
-
-                // FIXME: do we need this?
-                self.view = AppView::Developer(DeveloperView::ManualAssignment(
-                    ManualAssignmentView::AssigningLayers,
-                ));
             }
             ManualAssignmentView::LoadingModel(_) => {
                 // loading is in progress, just wait
