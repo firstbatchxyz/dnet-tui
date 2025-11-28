@@ -189,7 +189,8 @@ impl App {
     }
 
     fn model_up(&mut self) {
-        self.model_selector_state.move_up();
+        self.model_selector_state
+            .move_up(self.available_models.len());
     }
 
     fn model_down(&mut self) {

@@ -144,9 +144,7 @@ impl crate::App {
         };
 
         frame.render_widget(
-            Paragraph::new(footer_text)
-                .block(Block::default().borders(Borders::TOP))
-                .centered(),
+            Paragraph::new(footer_text).centered().fg(Color::Gray),
             footer_area,
         );
     }
@@ -167,9 +165,9 @@ impl crate::App {
     fn draw_layer_assignment_interface(&mut self, frame: &mut Frame, area: Rect) {
         let state = &self.state.developer.manual;
         let chunks = Layout::vertical([
-            Constraint::Length(3), // Model info
-            Constraint::Min(10),   // Shard list
-            Constraint::Length(5), // Assignment status
+            Constraint::Length(3),      // Model info
+            Constraint::Percentage(50), // Top half: shard lists
+            Constraint::Percentage(50), // Bottom half: layer visualization
         ])
         .split(area);
 
@@ -183,7 +181,7 @@ impl crate::App {
             chunks[0],
         );
 
-        // Split shards into two groups
+        // Split top half into two columns for shards
         let shard_chunks =
             Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)])
                 .split(chunks[1]);
@@ -232,7 +230,7 @@ impl crate::App {
             if shard_layers.is_empty() && !shard.model_loaded {
                 unassigned_items.push(item);
             } else {
-                assigned_items.push(item);
+                assigned_items.push((item, i));
             }
         }
 
@@ -243,47 +241,109 @@ impl crate::App {
         );
         frame.render_widget(unassigned_list, shard_chunks[0]);
 
-        let assigned_list = List::new(assigned_items).block(
+        let assigned_list_items: Vec<ListItem> = assigned_items
+            .iter()
+            .map(|(item, _)| item.clone())
+            .collect();
+        let assigned_list = List::new(assigned_list_items).block(
             Block::default()
                 .borders(Borders::ALL)
                 .title("Assigned Shards"),
         );
         frame.render_widget(assigned_list, shard_chunks[1]);
 
-        // Assignment status
-        let assigned_count: usize = state.assignments.values().map(|v| v.len()).sum();
-        let all_layers: HashSet<u32> = state
+        // Determine which shard is selected in the assigned list
+        let selected_assigned_shard_index = if state.selected_shard < state.shards.len() {
+            let selected_shard = &state.shards[state.selected_shard];
+            let shard_layers = state
+                .assignments
+                .get(&selected_shard.device.instance)
+                .cloned()
+                .unwrap_or_default();
+
+            // Only highlight if this shard has assignments (is in assigned list)
+            if !shard_layers.is_empty() || selected_shard.model_loaded {
+                Some(state.selected_shard)
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        // Layer visualization
+        self.draw_layer_visualization(frame, chunks[2], selected_assigned_shard_index);
+    }
+
+    fn draw_layer_visualization(
+        &self,
+        frame: &mut Frame,
+        area: Rect,
+        selected_shard_index: Option<usize>,
+    ) {
+        let state = &self.state.developer.manual;
+
+        // Collect all assigned layers
+        let all_assigned_layers: HashSet<u32> = state
             .assignments
             .values()
             .flat_map(|v| v.iter().cloned())
             .collect();
-        let missing_layers = find_missing_layers(&all_layers, state.num_layers);
 
-        let status_color = if missing_layers.is_empty() {
-            Color::Green
+        // Get layers for the selected shard (if any)
+        let selected_shard_layers: HashSet<u32> = if let Some(idx) = selected_shard_index {
+            if idx < state.shards.len() {
+                state
+                    .assignments
+                    .get(&state.shards[idx].device.instance)
+                    .cloned()
+                    .unwrap_or_default()
+                    .into_iter()
+                    .collect()
+            } else {
+                HashSet::new()
+            }
         } else {
-            Color::Yellow
+            HashSet::new()
         };
 
-        let status_text = if missing_layers.is_empty() {
-            format!(
-                "All {} layers assigned! Press 'C' to complete.",
-                state.num_layers
-            )
-        } else {
-            format!(
-                "Assigned: {}/{} | Missing: {}",
-                assigned_count,
-                state.num_layers,
-                format_layers(&missing_layers)
-            )
-        };
+        // Build the layer visualization string
+        let mut layer_text = String::new();
+        for layer in 0..state.num_layers {
+            let symbol = if selected_shard_layers.contains(&layer) {
+                "▣ " // Cyan - selected shard's layer
+            } else if all_assigned_layers.contains(&layer) {
+                "■ " // White - assigned layer
+            } else {
+                "□ " // Gray - unassigned layer
+            };
+            layer_text.push_str(symbol);
+        }
+
+        // Apply colors using spans
+        let mut spans = Vec::new();
+        for layer in 0..state.num_layers {
+            let (symbol, color) = if selected_shard_layers.contains(&layer) {
+                ("▣ ", Color::Cyan)
+            } else if all_assigned_layers.contains(&layer) {
+                ("■ ", Color::White)
+            } else {
+                ("□ ", Color::Gray)
+            };
+            spans.push(symbol.fg(color));
+        }
+
+        let layer_line = Line::from(spans);
 
         frame.render_widget(
-            Paragraph::new(status_text)
-                .block(Block::default().borders(Borders::ALL).title("Status"))
-                .style(Style::default().fg(status_color)),
-            chunks[2],
+            Paragraph::new(layer_line)
+                .block(
+                    Block::default()
+                        .borders(Borders::ALL)
+                        .title("Layer Assignments"),
+                )
+                .wrap(Wrap { trim: false }),
+            area,
         );
     }
 
@@ -298,7 +358,8 @@ impl crate::App {
                     self.view = AppView::Developer(DeveloperView::Menu);
                 }
                 KeyCode::Up => {
-                    self.model_selector_state.move_up();
+                    self.model_selector_state
+                        .move_up(self.available_models.len());
                 }
                 KeyCode::Down => {
                     self.model_selector_state

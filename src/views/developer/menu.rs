@@ -23,7 +23,7 @@ impl crate::App {
         let [title_area, content_area, footer_area] = vertical.areas(area);
 
         // Title
-        let title = Line::from("Developer Menu").bold().yellow().centered();
+        let title = Line::from("Developer Menu").bold().cyan().centered();
         frame.render_widget(Paragraph::new(title), title_area);
 
         // Menu items - just one option now

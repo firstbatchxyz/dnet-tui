@@ -215,17 +215,32 @@ impl App {
     pub fn draw_menu(&mut self, frame: &mut Frame) {
         let area = frame.area();
 
-        // ASCII Art
-        let ascii_art: Vec<_> = MENU_BANNER
-            .map(|line| Line::from(line).centered())
-            .into_iter()
-            .collect();
+        // determine if we should show the large banner:
+        // only show it if it takes less than 1/3 of the viewport
+        let large_banner_height = MENU_LARGE_BANNER.len() as u16;
+        let show_large_banner = large_banner_height as f32 <= area.height as f32 / 2.5;
+
+        // ASCII Art - always show small banner, optionally show large banner
+        let ascii_art: Vec<_> = if show_large_banner {
+            // Show both large and small banners
+            MENU_LARGE_BANNER
+                .iter()
+                .chain(MENU_SMALL_BANNER.iter())
+                .map(|line| Line::from(*line).centered())
+                .collect()
+        } else {
+            // Show only small banner
+            MENU_SMALL_BANNER
+                .iter()
+                .map(|line| Line::from(*line).centered())
+                .collect()
+        };
 
         // Create layout
         let vertical = Layout::vertical([
-            Constraint::Length(ascii_art.len() as u16), // ASCII art
+            Constraint::Length(ascii_art.len() as u16), // ASCII art (or just version)
             Constraint::Min(0),                         // Menu
-            Constraint::Length(3),                      // Footer
+            Constraint::Length(2),                      // Footer
         ]);
         let [art_area, menu_area, footer_area] = vertical.areas(area);
 
@@ -390,8 +405,8 @@ impl App {
 }
 
 /// A Dria & DNET ASCII art banner for the menu screen.
-const MENU_BANNER: [&str; 18] = [
-    "                                                                             ",
+const MENU_LARGE_BANNER: [&str; 12] = [
+    "",
     "      00000    000000                                                        ",
     "   000    000000000000000   0000000000000000      000000000000          00000",
     " 000       000000   000000000   00000    00000 000    00000            000000",
@@ -403,7 +418,9 @@ const MENU_BANNER: [&str; 18] = [
     "     00000     000000     000000   000000    00 000000  0000000000000 00000  ",
     "    00000    0000000     00000     00000 0     000000      000        00000  ",
     " 0000000   00000       0000000    00000000  000000000    000        0000000  ",
-    "",
+];
+
+const MENU_SMALL_BANNER: [&str; 5] = [
     "",
     " ⠀⠀⣠⣤⠐⣦⡀⠀⠴⠢⣤⣄⠀⢀⠄⠀⠀⢠⣶⠂⠀⢐⠆⢀⡤⢠⣤⠂⢤",
     " ⠀⣰⡟⠀⢠⣿⠁⠀⠀⠌⢹⣿⢀⠎⠀⡄⢠⣿⠃⡴⠀⠀⠀⠊⢀⣾⠃⠀⠁",

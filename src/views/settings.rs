@@ -154,7 +154,7 @@ impl App {
         let [title_area, settings_area, footer_area] = vertical.areas(area);
 
         // Title
-        let title = Line::from("Settings").bold().blue().centered();
+        let title = Line::from("Settings").bold().cyan().centered();
         frame.render_widget(Paragraph::new(title), title_area);
 
         // Body

@@ -6,7 +6,7 @@ use ratatui::{
     layout::{Constraint, Layout},
     style::{Color, Modifier, Style, Stylize},
     text::Line,
-    widgets::{Block, Borders, List, ListItem, Paragraph},
+    widgets::{Block, List, ListItem, Paragraph},
 };
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
@@ -45,10 +45,7 @@ impl App {
 
         // Title
         let title = Line::from("Discovered Devices").bold().cyan().centered();
-        frame.render_widget(
-            Paragraph::new(title).block(Block::default().borders(Borders::BOTTOM)),
-            title_area,
-        );
+        frame.render_widget(Paragraph::new(title), title_area);
 
         // Content
         match view {
