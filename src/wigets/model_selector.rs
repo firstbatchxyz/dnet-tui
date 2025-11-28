@@ -81,8 +81,8 @@ pub struct ModelSelector<'a> {
 }
 
 const SELECTED_STYLE: Style = Style::new()
-    .fg(Color::Cyan)
-    .bg(Color::Black)
+    .fg(Color::Black)
+    .bg(Color::Cyan)
     .add_modifier(Modifier::BOLD);
 
 const UNSELECTED_STYLE: Style = Style::new();

@@ -3,7 +3,7 @@ use super::utils::{
     determine_next_instances, find_missing_layers, format_layers, parse_layer_input,
 };
 use crate::AppView;
-use crate::common::{AssignmentInfo, DeviceProperties, ShardHealthResponse};
+use crate::common::{AssignmentInfo, DeviceProperties, ShardHealth};
 use crate::config::{Config, KVBits};
 use crate::utils::ModelConfig;
 use color_eyre::eyre::OptionExt;
@@ -419,7 +419,7 @@ impl crate::App {
             let health_url = format!("http://{}:{}/health", device.local_ip, device.server_port);
             let (model_loaded, assigned_layers) =
                 if let Ok(health_response) = reqwest::get(&health_url).await {
-                    if let Ok(health) = health_response.json::<ShardHealthResponse>().await {
+                    if let Ok(health) = health_response.json::<ShardHealth>().await {
                         (health.model_loaded, health.assigned_layers)
                     } else {
                         (false, Vec::new())

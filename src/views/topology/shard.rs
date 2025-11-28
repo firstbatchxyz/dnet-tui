@@ -1,4 +1,4 @@
-use crate::common::ShardHealthResponse;
+use crate::common::ShardHealth;
 use crate::{App, app::AppView, views::topology::TopologyView};
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::{
@@ -12,13 +12,13 @@ use ratatui::{
 #[derive(Debug, Clone, PartialEq)]
 pub enum ShardView {
     Loading,
-    Loaded(ShardHealthResponse),
+    Loaded(ShardHealth),
     Error(String),
 }
 
 impl ShardView {
     /// Fetch shard health from the shard's HTTP endpoint
-    pub async fn fetch(device_ip: &str, http_port: u16) -> Result<ShardHealthResponse, String> {
+    pub async fn fetch(device_ip: &str, http_port: u16) -> Result<ShardHealth, String> {
         let url = format!("http://{}:{}/health", device_ip, http_port);
         let response = reqwest::get(&url)
             .await
@@ -28,7 +28,7 @@ impl ShardView {
             return Err(format!("Shard returned error: {}", response.status()));
         }
 
-        let health: ShardHealthResponse = response
+        let health: ShardHealth = response
             .json()
             .await
             .map_err(|e| format!("Failed to parse response: {}", e))?;
@@ -110,7 +110,7 @@ impl App {
         &mut self,
         frame: &mut Frame,
         area: ratatui::layout::Rect,
-        health: &ShardHealthResponse,
+        health: &ShardHealth,
     ) {
         // Create a nice layout displaying all health information
         let mut lines = Vec::new();
