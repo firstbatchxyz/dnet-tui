@@ -7,13 +7,13 @@ use crate::common::{AssignmentInfo, DeviceProperties, ShardHealth};
 use crate::config::{Config, KVBits};
 use crate::utils::ModelConfig;
 use color_eyre::eyre::OptionExt;
-use crossterm::event::{KeyCode, KeyEvent};
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{
     Frame,
     layout::{Constraint, Layout, Rect},
     style::{Color, Modifier, Style, Stylize},
     text::Line,
-    widgets::{Block, Borders, List, ListItem, Paragraph, Wrap},
+    widgets::{Block, Borders, Clear, List, ListItem, Paragraph, Wrap},
 };
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -29,14 +29,37 @@ pub enum ManualAssignmentView {
     Error(String),
 }
 
-#[derive(Default, Debug)]
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ColumnSelection {
+    Unassigned,
+    Assigned,
+}
+
+#[derive(Debug)]
 pub struct ManualAssignmentState {
     model: String,
     num_layers: u32,
     shards: Vec<ShardInfo>,
     assignments: HashMap<String /* shard */, Vec<u32> /* layers */>,
-    selected_shard: usize,
+    selected_column: ColumnSelection,
+    selected_unassigned_index: usize,
+    selected_assigned_index: usize,
     is_typing: bool,
+}
+
+impl Default for ManualAssignmentState {
+    fn default() -> Self {
+        Self {
+            model: String::new(),
+            num_layers: 0,
+            shards: Vec::new(),
+            assignments: HashMap::new(),
+            selected_column: ColumnSelection::Unassigned,
+            selected_unassigned_index: 0,
+            selected_assigned_index: 0,
+            is_typing: false,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -45,6 +68,45 @@ pub struct ShardInfo {
     pub device: DeviceProperties,
     pub model_loaded: bool,
     pub assigned_layers: Vec<u32>,
+}
+
+/// Helper function to create a centered rect for popup
+fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
+    let popup_layout = Layout::vertical([
+        Constraint::Percentage((100 - percent_y) / 2),
+        Constraint::Percentage(percent_y),
+        Constraint::Percentage((100 - percent_y) / 2),
+    ])
+    .split(r);
+
+    Layout::horizontal([
+        Constraint::Percentage((100 - percent_x) / 2),
+        Constraint::Percentage(percent_x),
+        Constraint::Percentage((100 - percent_x) / 2),
+    ])
+    .split(popup_layout[1])[1]
+}
+
+/// Helper to partition shards into unassigned and assigned lists
+fn partition_shards(state: &ManualAssignmentState) -> (Vec<(usize, &ShardInfo)>, Vec<(usize, &ShardInfo)>) {
+    let mut unassigned = Vec::new();
+    let mut assigned = Vec::new();
+
+    for (i, shard) in state.shards.iter().enumerate() {
+        let shard_layers = state
+            .assignments
+            .get(&shard.device.instance)
+            .cloned()
+            .unwrap_or_default();
+
+        if shard_layers.is_empty() && !shard.model_loaded {
+            unassigned.push((i, shard));
+        } else {
+            assigned.push((i, shard));
+        }
+    }
+
+    (unassigned, assigned)
 }
 
 impl crate::App {
@@ -132,7 +194,7 @@ impl crate::App {
                 if self.state.developer.manual.is_typing {
                     "Type layers (e.g., 0,1,2 or 0-5) | Enter: Save | Esc: Cancel input"
                 } else {
-                    "↑↓: Select shard | Enter: Assign layers | C: Complete | Esc: Back"
+                    "←→: Switch column | ↑↓: Navigate | Enter: Assign/Submit | Ctrl+D: Deassign | Esc: Back"
                 }
             }
             ManualAssignmentView::Success | ManualAssignmentView::Error(_) => {
@@ -164,75 +226,68 @@ impl crate::App {
 
     fn draw_layer_assignment_interface(&mut self, frame: &mut Frame, area: Rect) {
         let state = &self.state.developer.manual;
+
         let chunks = Layout::vertical([
-            Constraint::Length(3),      // Model info
-            Constraint::Percentage(50), // Top half: shard lists
-            Constraint::Percentage(50), // Bottom half: layer visualization
+            Constraint::Percentage(65), // Top: shard lists
+            Constraint::Percentage(35), // Bottom: layer visualization + status
         ])
         .split(area);
-
-        // Model info
-        let model_info: Vec<Line<'_>> = vec![Line::from(format!(
-            "Model: {} | Total Layers: {}",
-            state.model, state.num_layers
-        ))];
-        frame.render_widget(
-            Paragraph::new(model_info).block(Block::default().borders(Borders::ALL)),
-            chunks[0],
-        );
 
         // Split top half into two columns for shards
         let shard_chunks =
             Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)])
-                .split(chunks[1]);
+                .split(chunks[0]);
 
-        // Unassigned shards
-        let mut unassigned_items = Vec::new();
-        let mut assigned_items = Vec::new();
+        // Get partitioned shard lists
+        let (unassigned_shards, assigned_shards) = partition_shards(state);
 
-        for (i, shard) in state.shards.iter().enumerate() {
-            let shard_layers = state
-                .assignments
-                .get(&shard.device.instance)
-                .cloned()
-                .unwrap_or_default();
+        // Create list items for unassigned shards
+        let unassigned_items: Vec<ListItem> = unassigned_shards
+            .iter()
+            .enumerate()
+            .map(|(idx, (_, shard))| {
+                let is_selected = state.selected_column == ColumnSelection::Unassigned
+                    && idx == state.selected_unassigned_index;
+                let style = if is_selected {
+                    Style::default()
+                        .fg(Color::Black)
+                        .bg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default()
+                };
+                ListItem::new(shard.device.instance.clone()).style(style)
+            })
+            .collect();
 
-            let display_text = if shard_layers.is_empty() {
-                format!("{}", shard.device.instance)
-            } else {
-                format!(
+        // Create list items for assigned shards
+        let assigned_items: Vec<ListItem> = assigned_shards
+            .iter()
+            .enumerate()
+            .map(|(idx, (_, shard))| {
+                let is_selected = state.selected_column == ColumnSelection::Assigned
+                    && idx == state.selected_assigned_index;
+                let style = if is_selected {
+                    Style::default()
+                        .fg(Color::Black)
+                        .bg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default()
+                };
+                let shard_layers = state
+                    .assignments
+                    .get(&shard.device.instance)
+                    .cloned()
+                    .unwrap_or_default();
+                let display_text = format!(
                     "{}: {}",
                     shard.device.instance,
                     format_layers(&shard_layers)
-                )
-            };
-
-            let is_selected = i == state.selected_shard;
-            let style = if is_selected && state.is_typing {
-                Style::default()
-                    .fg(Color::Yellow)
-                    .add_modifier(Modifier::BOLD)
-            } else if is_selected {
-                Style::default()
-                    .fg(Color::Black)
-                    .bg(Color::Cyan)
-                    .add_modifier(Modifier::BOLD)
-            } else {
-                Style::default()
-            };
-
-            let item = if is_selected && state.is_typing {
-                ListItem::new(format!("{} > {}", display_text, self.input_buffer)).style(style)
-            } else {
+                );
                 ListItem::new(display_text).style(style)
-            };
-
-            if shard_layers.is_empty() && !shard.model_loaded {
-                unassigned_items.push(item);
-            } else {
-                assigned_items.push((item, i));
-            }
-        }
+            })
+            .collect();
 
         let unassigned_list = List::new(unassigned_items).block(
             Block::default()
@@ -241,38 +296,106 @@ impl crate::App {
         );
         frame.render_widget(unassigned_list, shard_chunks[0]);
 
-        let assigned_list_items: Vec<ListItem> = assigned_items
-            .iter()
-            .map(|(item, _)| item.clone())
-            .collect();
-        let assigned_list = List::new(assigned_list_items).block(
+        let assigned_list = List::new(assigned_items).block(
             Block::default()
                 .borders(Borders::ALL)
                 .title("Assigned Shards"),
         );
         frame.render_widget(assigned_list, shard_chunks[1]);
 
-        // Determine which shard is selected in the assigned list
-        let selected_assigned_shard_index = if state.selected_shard < state.shards.len() {
-            let selected_shard = &state.shards[state.selected_shard];
-            let shard_layers = state
-                .assignments
-                .get(&selected_shard.device.instance)
-                .cloned()
-                .unwrap_or_default();
-
-            // Only highlight if this shard has assignments (is in assigned list)
-            if !shard_layers.is_empty() || selected_shard.model_loaded {
-                Some(state.selected_shard)
-            } else {
-                None
-            }
+        // Determine which shard is selected for layer visualization
+        // Only highlight if in assigned column
+        let selected_shard_index = if state.selected_column == ColumnSelection::Assigned
+            && state.selected_assigned_index < assigned_shards.len()
+        {
+            Some(assigned_shards[state.selected_assigned_index].0)
         } else {
             None
         };
 
-        // Layer visualization
-        self.draw_layer_visualization(frame, chunks[2], selected_assigned_shard_index);
+        // Layer visualization and status
+        self.draw_layer_visualization(frame, chunks[1], selected_shard_index);
+
+        // Draw popup if typing
+        if state.is_typing {
+            self.draw_layer_input_popup(frame, area);
+        }
+    }
+
+    /// Helper to get the currently selected shard based on column selection
+    fn get_selected_shard_info(state: &ManualAssignmentState) -> (Option<usize>, Option<String>) {
+        let (unassigned, assigned) = partition_shards(state);
+
+        match state.selected_column {
+            ColumnSelection::Unassigned => {
+                unassigned.get(state.selected_unassigned_index)
+                    .map(|(idx, shard)| (Some(*idx), Some(shard.device.instance.clone())))
+                    .unwrap_or((None, None))
+            }
+            ColumnSelection::Assigned => {
+                assigned.get(state.selected_assigned_index)
+                    .map(|(idx, shard)| (Some(*idx), Some(shard.device.instance.clone())))
+                    .unwrap_or((None, None))
+            }
+        }
+    }
+
+    fn draw_layer_input_popup(&self, frame: &mut Frame, area: Rect) {
+        let state = &self.state.developer.manual;
+
+        // Calculate remaining (unassigned) layers
+        let all_assigned_layers: HashSet<u32> = state
+            .assignments
+            .values()
+            .flat_map(|v| v.iter().cloned())
+            .collect();
+        let remaining_layers = find_missing_layers(&all_assigned_layers, state.num_layers);
+
+        // Get the actual shard index based on current column
+        let (_shard_index, shard_name) = Self::get_selected_shard_info(state);
+        let shard_name = shard_name.as_deref().unwrap_or("Unknown");
+
+        // Build popup content
+        let mut content = vec![
+            Line::from(vec![
+                "Assigning layers to: ".into(),
+                shard_name.bold().cyan(),
+            ]),
+            Line::from(""),
+            Line::from(vec![
+                "Input: ".into(),
+                self.input_buffer.clone().yellow(),
+            ]),
+            Line::from(""),
+            Line::from("Remaining layers:".bold()),
+        ];
+
+        if remaining_layers.is_empty() {
+            content.push(Line::from("  All layers assigned!".green()));
+        } else {
+            content.push(Line::from(format!("  {}", format_layers(&remaining_layers))));
+        }
+
+        content.push(Line::from(""));
+        content.push(Line::from("Examples: 0,1,2 or 0-5".dark_gray()));
+
+        // Create popup area
+        let popup_area = centered_rect(60, 40, area);
+
+        // Clear the area behind the popup
+        frame.render_widget(Clear, popup_area);
+
+        // Render popup
+        let popup = Paragraph::new(content)
+            .block(
+                Block::default()
+                    .title(" Assign Layers ")
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(Color::Cyan))
+            )
+            .wrap(Wrap { trim: false });
+
+        frame.render_widget(popup, popup_area);
     }
 
     fn draw_layer_visualization(
@@ -283,12 +406,22 @@ impl crate::App {
     ) {
         let state = &self.state.developer.manual;
 
+        // Split area into layer viz and status message
+        let chunks = Layout::vertical([
+            Constraint::Min(3),     // Layer visualization
+            Constraint::Length(3),  // Status message
+        ])
+        .split(area);
+
         // Collect all assigned layers
         let all_assigned_layers: HashSet<u32> = state
             .assignments
             .values()
             .flat_map(|v| v.iter().cloned())
             .collect();
+
+        let missing_layers = find_missing_layers(&all_assigned_layers, state.num_layers);
+        let all_assigned = missing_layers.is_empty();
 
         // Get layers for the selected shard (if any)
         let selected_shard_layers: HashSet<u32> = if let Some(idx) = selected_shard_index {
@@ -307,24 +440,11 @@ impl crate::App {
             HashSet::new()
         };
 
-        // Build the layer visualization string
-        let mut layer_text = String::new();
-        for layer in 0..state.num_layers {
-            let symbol = if selected_shard_layers.contains(&layer) {
-                "▣ " // Cyan - selected shard's layer
-            } else if all_assigned_layers.contains(&layer) {
-                "■ " // White - assigned layer
-            } else {
-                "□ " // Gray - unassigned layer
-            };
-            layer_text.push_str(symbol);
-        }
-
         // Apply colors using spans
         let mut spans = Vec::new();
         for layer in 0..state.num_layers {
             let (symbol, color) = if selected_shard_layers.contains(&layer) {
-                ("▣ ", Color::Cyan)
+                ("■ ", Color::Cyan)
             } else if all_assigned_layers.contains(&layer) {
                 ("■ ", Color::White)
             } else {
@@ -335,15 +455,43 @@ impl crate::App {
 
         let layer_line = Line::from(spans);
 
+        // Title with model info
+        let title = format!(
+            "Layer Assignments: {} | Total Layers: {}",
+            state.model, state.num_layers
+        );
+
         frame.render_widget(
             Paragraph::new(layer_line)
-                .block(
-                    Block::default()
-                        .borders(Borders::ALL)
-                        .title("Layer Assignments"),
-                )
-                .wrap(Wrap { trim: false }),
-            area,
+                .block(Block::default().borders(Borders::ALL).title(title))
+                .wrap(Wrap { trim: false })
+                .centered(),
+            chunks[0],
+        );
+
+        // Status message area
+        let status_widget = if !self.status_message.is_empty() {
+            // Show error message
+            Paragraph::new(self.status_message.clone())
+                .red()
+                .bold()
+                .centered()
+        } else if all_assigned {
+            // Show completion message
+            Paragraph::new("All layers assigned! Press Enter to continue.")
+                .green()
+                .bold()
+                .centered()
+        } else {
+            // Show missing layers
+            Paragraph::new(format!("Missing: {}", format_layers(&missing_layers)))
+                .yellow()
+                .centered()
+        };
+
+        frame.render_widget(
+            status_widget.block(Block::default().borders(Borders::ALL).title("Status")),
+            chunks[1],
         );
     }
 
@@ -376,6 +524,8 @@ impl crate::App {
                 _ => {}
             },
             ManualAssignmentView::AssigningLayers => {
+                // Get shard info before borrowing state mutably
+                let shard_info = Self::get_selected_shard_info(&self.state.developer.manual);
                 let state = &mut self.state.developer.manual;
 
                 if state.is_typing {
@@ -386,15 +536,35 @@ impl crate::App {
                             self.input_buffer.clear();
                         }
                         KeyCode::Enter => {
-                            // Parse and save layers
+                            // Parse and save layers with collision detection
                             if let Some(layers) =
                                 parse_layer_input(&self.input_buffer, state.num_layers)
                             {
-                                if state.selected_shard < state.shards.len() {
-                                    state.assignments.insert(
-                                        state.shards[state.selected_shard].device.instance.clone(),
-                                        layers,
-                                    );
+                                if let (Some(_idx), Some(name)) = shard_info {
+                                    // Check for collisions with other shards
+                                    let has_collision = state
+                                        .assignments
+                                        .iter()
+                                        .filter(|(instance, _)| **instance != name)
+                                        .any(|(_, assigned_layers)| {
+                                            layers.iter().any(|l| assigned_layers.contains(l))
+                                        });
+
+                                    if has_collision {
+                                        // Collision detected - don't assign and show error in status
+                                        self.status_message = "Error: Layer collision detected! Those layers are already assigned to another shard.".to_string();
+                                    } else {
+                                        // No collision - proceed with assignment
+                                        state.assignments.insert(name, layers);
+                                        self.status_message.clear();
+
+                                        // Auto-switch to Assigned column if all shards are now assigned
+                                        let (unassigned, assigned) = partition_shards(state);
+                                        if unassigned.is_empty() && !assigned.is_empty() {
+                                            state.selected_column = ColumnSelection::Assigned;
+                                            state.selected_assigned_index = 0;
+                                        }
+                                    }
                                 }
                             }
                             state.is_typing = false;
@@ -412,6 +582,10 @@ impl crate::App {
                     }
                 } else {
                     // Not in input mode
+                    let (unassigned, assigned) = partition_shards(state);
+                    let unassigned_count = unassigned.len();
+                    let assigned_count = assigned.len();
+
                     match (key.modifiers, key.code) {
                         (_, KeyCode::Esc) => {
                             self.view = AppView::Developer(DeveloperView::ManualAssignment(
@@ -419,36 +593,94 @@ impl crate::App {
                             ));
                             return;
                         }
+                        (_, KeyCode::Left) => {
+                            // Move to unassigned column
+                            if unassigned_count > 0 {
+                                state.selected_column = ColumnSelection::Unassigned;
+                                // Clamp selection to valid range
+                                if state.selected_unassigned_index >= unassigned_count {
+                                    state.selected_unassigned_index = unassigned_count.saturating_sub(1);
+                                }
+                            }
+                        }
+                        (_, KeyCode::Right) => {
+                            // Move to assigned column
+                            if assigned_count > 0 {
+                                state.selected_column = ColumnSelection::Assigned;
+                                // Clamp selection to valid range
+                                if state.selected_assigned_index >= assigned_count {
+                                    state.selected_assigned_index = assigned_count.saturating_sub(1);
+                                }
+                            }
+                        }
                         (_, KeyCode::Up) => {
-                            if state.selected_shard > 0 {
-                                state.selected_shard -= 1;
+                            // Navigate within current column
+                            match state.selected_column {
+                                ColumnSelection::Unassigned => {
+                                    if state.selected_unassigned_index > 0 {
+                                        state.selected_unassigned_index -= 1;
+                                    }
+                                }
+                                ColumnSelection::Assigned => {
+                                    if state.selected_assigned_index > 0 {
+                                        state.selected_assigned_index -= 1;
+                                    }
+                                }
                             }
                         }
                         (_, KeyCode::Down) => {
-                            if !state.shards.is_empty()
-                                && state.selected_shard < state.shards.len() - 1
-                            {
-                                state.selected_shard += 1;
+                            // Navigate within current column
+                            match state.selected_column {
+                                ColumnSelection::Unassigned => {
+                                    if unassigned_count > 0 && state.selected_unassigned_index < unassigned_count - 1 {
+                                        state.selected_unassigned_index += 1;
+                                    }
+                                }
+                                ColumnSelection::Assigned => {
+                                    if assigned_count > 0 && state.selected_assigned_index < assigned_count - 1 {
+                                        state.selected_assigned_index += 1;
+                                    }
+                                }
                             }
                         }
                         (_, KeyCode::Enter) => {
-                            state.is_typing = true;
-                            self.input_buffer.clear();
-                        }
-                        (_, KeyCode::Char('c') | KeyCode::Char('C')) => {
-                            // Complete assignment
-                            let all_layers: HashSet<u32> = state
+                            // Check if all layers are assigned
+                            let all_assigned_layers: HashSet<u32> = state
                                 .assignments
                                 .values()
                                 .flat_map(|v| v.iter().cloned())
                                 .collect();
-                            let missing_layers = find_missing_layers(&all_layers, state.num_layers);
+                            let missing_layers = find_missing_layers(&all_assigned_layers, state.num_layers);
 
                             if missing_layers.is_empty() {
+                                // All layers assigned - submit!
                                 self.view = AppView::Developer(DeveloperView::ManualAssignment(
                                     ManualAssignmentView::Submitting,
                                 ));
                                 return;
+                            } else {
+                                // Not all assigned - enter typing mode
+                                state.is_typing = true;
+                                self.input_buffer.clear();
+                                self.status_message.clear();
+                            }
+                        }
+                        (KeyModifiers::CONTROL, KeyCode::Char('d')) => {
+                            // Deassign layers from the selected shard
+                            if let (_, Some(name)) = shard_info {
+                                state.assignments.remove(&name);
+
+                                // Auto-switch to Unassigned column if no more assigned shards
+                                let (unassigned, assigned) = partition_shards(state);
+                                if assigned.is_empty() && !unassigned.is_empty() {
+                                    state.selected_column = ColumnSelection::Unassigned;
+                                    state.selected_unassigned_index = 0;
+                                } else if state.selected_column == ColumnSelection::Assigned {
+                                    // Clamp selection if we removed the last item in assigned list
+                                    if state.selected_assigned_index >= assigned.len() && !assigned.is_empty() {
+                                        state.selected_assigned_index = assigned.len() - 1;
+                                    }
+                                }
                             }
                         }
                         _ => {}
@@ -597,7 +829,9 @@ impl crate::App {
                                     num_layers: num_layers as u32,
                                     shards,
                                     assignments: HashMap::new(),
-                                    selected_shard: 0,
+                                    selected_column: ColumnSelection::Unassigned,
+                                    selected_unassigned_index: 0,
+                                    selected_assigned_index: 0,
                                     is_typing: false,
                                 };
                                 self.view = AppView::Developer(DeveloperView::ManualAssignment(

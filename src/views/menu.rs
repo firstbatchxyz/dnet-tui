@@ -222,14 +222,14 @@ impl App {
 
         // ASCII Art - always show small banner, optionally show large banner
         let ascii_art: Vec<_> = if show_large_banner {
-            // Show both large and small banners
+            // show both large and small banners
             MENU_LARGE_BANNER
                 .iter()
                 .chain(MENU_SMALL_BANNER.iter())
                 .map(|line| Line::from(*line).centered())
                 .collect()
         } else {
-            // Show only small banner
+            // show only small banner
             MENU_SMALL_BANNER
                 .iter()
                 .map(|line| Line::from(*line).centered())
