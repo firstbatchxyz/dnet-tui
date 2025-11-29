@@ -1,4 +1,4 @@
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::{
     Frame,
     layout::{Constraint, Layout},
@@ -67,29 +67,11 @@ impl crate::App {
         frame.render_widget(Paragraph::new(footer_text).centered(), footer_area);
     }
 
-    pub(super) fn handle_unload_model_input(&mut self, key: KeyEvent, state: &UnloadModelView) {
-        match state {
-            UnloadModelView::Error(_) | UnloadModelView::Success => {
-                match (key.modifiers, key.code) {
-                    (_, KeyCode::Esc) => {
-                        self.view = crate::AppView::Menu;
-                    }
-                    (KeyModifiers::CONTROL, KeyCode::Char('c') | KeyCode::Char('C')) => self.quit(),
-                    _ => {}
-                }
-            }
-            UnloadModelView::Unloading => {
-                // only allow quitting
-                if matches!(
-                    (key.modifiers, key.code),
-                    (
-                        KeyModifiers::CONTROL,
-                        KeyCode::Char('c') | KeyCode::Char('C')
-                    )
-                ) {
-                    self.quit();
-                }
-            }
+    pub(super) fn handle_unload_model_input(&mut self, key: KeyEvent, _state: &UnloadModelView) {
+        // only allow ESC to go back
+        match key.code {
+            KeyCode::Esc => self.view = crate::AppView::Menu,
+            _ => {}
         }
     }
 

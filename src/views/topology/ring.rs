@@ -1,6 +1,6 @@
 use crate::common::TopologyInfo;
 use crate::{app::AppView, utils::get_sliding_text};
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::{
     Frame,
     layout::{Constraint, Layout},
@@ -347,14 +347,13 @@ impl crate::App {
     }
 
     pub(super) fn handle_topology_ring_input(&mut self, key: KeyEvent) {
-        match (key.modifiers, key.code) {
-            (_, KeyCode::Esc) => {
+        match key.code {
+            KeyCode::Esc => {
                 self.view = AppView::Menu;
             }
-            (KeyModifiers::CONTROL, KeyCode::Char('c') | KeyCode::Char('C')) => self.quit(),
-            (_, KeyCode::Up) => self.topology_device_up(),
-            (_, KeyCode::Down) => self.topology_device_down(),
-            (_, KeyCode::Enter) => self.open_shard_interaction(),
+            KeyCode::Up => self.topology_device_up(),
+            KeyCode::Down => self.topology_device_down(),
+            KeyCode::Enter => self.open_shard_interaction(),
             _ => {}
         }
     }

@@ -1,6 +1,6 @@
 use crate::config::Config;
 use crate::{App, AppView};
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::text::Span;
 use ratatui::{
     Frame,
@@ -154,7 +154,7 @@ impl App {
         let [title_area, settings_area, footer_area] = vertical.areas(area);
 
         // Title
-        let title = Line::from("Settings").bold().blue().centered();
+        let title = Line::from("Settings").bold().cyan().centered();
         frame.render_widget(Paragraph::new(title), title_area);
 
         // Body
@@ -223,7 +223,6 @@ impl App {
                     self.view = AppView::Menu;
                     self.state.settings.status.clear();
                 }
-                (KeyModifiers::CONTROL, KeyCode::Char('c') | KeyCode::Char('C')) => self.quit(),
                 (_, KeyCode::Up) => self.settings_up(),
                 (_, KeyCode::Down) => self.settings_down(),
                 (_, KeyCode::Enter) => self.start_edit(),
