@@ -87,7 +87,7 @@ impl App {
             .map(|model| model.id.clone())
             .collect();
 
-        let selector = crate::wigets::ModelSelector::new(&model_names)
+        let selector = crate::widgets::ModelSelector::new(&model_names)
             .block(Block::bordered().title("Select a model"));
 
         frame.render_stateful_widget(selector, area, &mut self.model_selector_state);

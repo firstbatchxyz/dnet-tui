@@ -14,5 +14,5 @@ pub use config::Config;
 mod utils;
 
 /// Reusable widgets.
-pub mod wigets;
-pub use wigets::*;
+pub mod widgets;
+pub use widgets::*;
