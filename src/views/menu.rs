@@ -217,7 +217,7 @@ impl App {
         let area = frame.area();
 
         // determine if we should show the large banner:
-        // only show it if it takes less than 1/3 of the viewport
+        // only show it if it doesnt take too much space
         let large_banner_height = MENU_LARGE_BANNER.len() as u16;
         let show_large_banner = large_banner_height as f32 <= area.height as f32 / 2.5;
 
