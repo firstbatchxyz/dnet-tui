@@ -1,3 +1,4 @@
+use crate::ModelSelectorState;
 use crate::chat::{ChatState, ChatView};
 use crate::common::{ApiClient, ModelInfo, TopologyInfo};
 use crate::config::Config;
@@ -54,8 +55,8 @@ pub struct App {
 
     pub api: ApiClient,
 
-    /// Selected model index in load model view.
-    pub selected_model: usize,
+    /// Model selector state, used by loading and developer views.
+    pub model_selector_state: ModelSelectorState,
 
     /// Status message.
     pub status_message: String,
@@ -91,7 +92,7 @@ impl App {
             config,
             view,
             state: AppState::default(),
-            selected_model: 0,
+            model_selector_state: ModelSelectorState::new(),
             topology: None,
             is_api_online: false,
             available_models: Vec::new(),
@@ -168,7 +169,7 @@ impl App {
 
     /// Reads the crossterm events and updates the state of [`App`].
     async fn handle_crossterm_events(&mut self) -> Result<()> {
-        use crossterm::event::{Event, KeyEventKind};
+        use crossterm::event::{Event, KeyEventKind, KeyModifiers};
         use futures::{FutureExt, StreamExt};
 
         let event = self.event_stream.next().fuse().await;
@@ -191,13 +192,24 @@ impl App {
                     //
                     // note that this will still cause the event queue to be filled up,
                     // which may delay other inputs, but it's a reasonable trade-off
-                    if matches!(key.code, KeyCode::Esc) {
-                        if Instant::now().duration_since(self.last_arrow_key_time)
+                    if matches!(key.code, KeyCode::Esc)
+                        && Instant::now().duration_since(self.last_arrow_key_time)
                             < Duration::from_millis(50)
-                        {
-                            return Ok(());
-                        }
+                    {
+                        return Ok(());
                     }
+
+                    // application-wide CTRL+C handler
+                    if matches!(
+                        (key.modifiers, key.code),
+                        (
+                            KeyModifiers::CONTROL,
+                            KeyCode::Char('c') | KeyCode::Char('C')
+                        )
+                    ) {
+                        self.quit();
+                        return Ok(());
+                    };
 
                     match &self.view.clone() {
                         AppView::Menu => self.handle_menu_input(key),

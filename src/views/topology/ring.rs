@@ -1,6 +1,6 @@
 use crate::common::TopologyInfo;
 use crate::{app::AppView, utils::get_sliding_text};
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::{
     Frame,
     layout::{Constraint, Layout},
@@ -44,7 +44,7 @@ impl crate::App {
         let vertical = Layout::vertical([
             Constraint::Length(3), // Title
             Constraint::Min(0),    // Content
-            Constraint::Length(3), // Footer
+            Constraint::Length(2), // Footer
         ]);
         let [title_area, content_area, footer_area] = vertical.areas(area);
 
@@ -144,7 +144,7 @@ impl crate::App {
             }
             _ => "Press Esc to go back",
         };
-        frame.render_widget(Paragraph::new(footer_text).centered(), footer_area);
+        frame.render_widget(Paragraph::new(footer_text).centered().gray(), footer_area);
     }
 
     pub fn draw_topology_ring(&mut self, frame: &mut Frame, area: ratatui::layout::Rect) {
@@ -347,14 +347,13 @@ impl crate::App {
     }
 
     pub(super) fn handle_topology_ring_input(&mut self, key: KeyEvent) {
-        match (key.modifiers, key.code) {
-            (_, KeyCode::Esc) => {
+        match key.code {
+            KeyCode::Esc => {
                 self.view = AppView::Menu;
             }
-            (KeyModifiers::CONTROL, KeyCode::Char('c') | KeyCode::Char('C')) => self.quit(),
-            (_, KeyCode::Up) => self.topology_device_up(),
-            (_, KeyCode::Down) => self.topology_device_down(),
-            (_, KeyCode::Enter) => self.open_shard_interaction(),
+            KeyCode::Up => self.topology_device_up(),
+            KeyCode::Down => self.topology_device_down(),
+            KeyCode::Enter => self.open_shard_interaction(),
             _ => {}
         }
     }
@@ -432,11 +431,9 @@ impl crate::App {
                     || error_msg.contains("refused")
                     || error_msg.contains("error sending request")
                 {
-                    format!(
-                        "Cannot connect to API server. Please check your settings and ensure the server is running.",
-                    )
+                    "Cannot connect to API server. Please check your settings and ensure the server is running.".to_string()
                 } else {
-                    format!("Error: {}", error_msg)
+                    format!("Error: {error_msg}")
                 };
 
                 self.view = AppView::Topology(super::TopologyView::Ring(TopologyRingView::Error(

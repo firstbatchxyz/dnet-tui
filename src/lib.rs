@@ -6,7 +6,13 @@ pub use app::{App, AppView};
 pub mod views;
 pub use views::*;
 
-mod common;
+/// Common utilities.
+pub mod common;
+
 mod config;
 pub use config::Config;
 mod utils;
+
+/// Reusable widgets.
+pub mod widgets;
+pub use widgets::*;

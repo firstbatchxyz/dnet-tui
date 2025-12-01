@@ -1,4 +1,4 @@
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::{
     Frame,
     layout::{Constraint, Layout},
@@ -18,16 +18,16 @@ impl crate::App {
         let vertical = Layout::vertical([
             Constraint::Length(3), // Title
             Constraint::Min(0),    // Content
-            Constraint::Length(3), // Footer
+            Constraint::Length(2), // Footer
         ]);
         let [title_area, content_area, footer_area] = vertical.areas(area);
 
         // Title
-        let title = Line::from("Developer Menu").bold().yellow().centered();
+        let title = Line::from("Developer Menu").bold().cyan().centered();
         frame.render_widget(Paragraph::new(title), title_area);
 
         // Menu items - just one option now
-        let menu_items = vec!["Manual Layer Assignment - Manually assign layers to shards"];
+        let menu_items = ["Manual Layer Assignment - Manually assign layers to shards"];
 
         let items: Vec<ListItem> = menu_items
             .iter()
@@ -50,7 +50,9 @@ impl crate::App {
 
         // Footer
         frame.render_widget(
-            Paragraph::new("Enter: Select | Esc: Back to main menu").centered(),
+            Paragraph::new("Enter: Select | Esc: Back to main menu")
+                .centered()
+                .gray(),
             footer_area,
         );
     }
@@ -61,14 +63,13 @@ impl crate::App {
                 self.view = AppView::Menu;
                 self.state.developer.menu_index = 0;
             }
-            (KeyModifiers::CONTROL, KeyCode::Char('c') | KeyCode::Char('C')) => self.quit(),
             (_, KeyCode::Enter) => {
                 // Only one option now - Manual Layer Assignment
                 if self.state.developer.menu_index == 0 {
                     self.view = AppView::Developer(DeveloperView::ManualAssignment(
                         super::ManualAssignmentView::SelectingModel,
                     ));
-                    self.selected_model = 0;
+                    self.model_selector_state.reset();
                 }
             }
             _ => {}

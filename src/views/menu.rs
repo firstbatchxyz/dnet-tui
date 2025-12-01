@@ -5,7 +5,7 @@ use crate::model::{LoadModelView, UnloadModelView};
 use crate::topology::TopologyView;
 use crate::views::topology::TopologyRingView;
 use crate::{App, AppView};
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::text::Span;
 use ratatui::{
     Frame,
@@ -182,6 +182,7 @@ impl App {
         let now = std::time::Instant::now();
 
         // if API is offline, perform health-checks
+        #[allow(clippy::collapsible_if)] // we may add more cases later
         if !self.is_api_online {
             if now.duration_since(self.state.menu.last_health_check) >= Self::HEALTH_CHECK_INTERVAL
             {
@@ -215,17 +216,32 @@ impl App {
     pub fn draw_menu(&mut self, frame: &mut Frame) {
         let area = frame.area();
 
-        // ASCII Art
-        let ascii_art: Vec<_> = MENU_BANNER
-            .map(|line| Line::from(line).centered())
-            .into_iter()
-            .collect();
+        // determine if we should show the large banner:
+        // only show it if it doesnt take too much space
+        let large_banner_height = MENU_LARGE_BANNER.len() as u16;
+        let show_large_banner = large_banner_height as f32 <= area.height as f32 / 2.5;
+
+        // ASCII Art - always show small banner, optionally show large banner
+        let ascii_art: Vec<_> = if show_large_banner {
+            // show both large and small banners
+            MENU_LARGE_BANNER
+                .iter()
+                .chain(MENU_SMALL_BANNER.iter())
+                .map(|line| Line::from(*line).centered())
+                .collect()
+        } else {
+            // show only small banner
+            MENU_SMALL_BANNER
+                .iter()
+                .map(|line| Line::from(*line).centered())
+                .collect()
+        };
 
         // Create layout
         let vertical = Layout::vertical([
-            Constraint::Length(ascii_art.len() as u16), // ASCII art
+            Constraint::Length(ascii_art.len() as u16), // ASCII art (or just version)
             Constraint::Min(0),                         // Menu
-            Constraint::Length(3),                      // Footer
+            Constraint::Length(2),                      // Footer
         ]);
         let [art_area, menu_area, footer_area] = vertical.areas(area);
 
@@ -312,12 +328,11 @@ impl App {
     }
 
     pub fn handle_menu_input(&mut self, key: KeyEvent) {
-        match (key.modifiers, key.code) {
-            (_, KeyCode::Esc)
-            | (KeyModifiers::CONTROL, KeyCode::Char('c') | KeyCode::Char('C')) => self.quit(),
-            (_, KeyCode::Up) => self.menu_up(),
-            (_, KeyCode::Down) => self.menu_down(),
-            (_, KeyCode::Enter) => self.select_menu_item(),
+        match key.code {
+            KeyCode::Esc => self.quit(),
+            KeyCode::Up => self.menu_up(),
+            KeyCode::Down => self.menu_down(),
+            KeyCode::Enter => self.select_menu_item(),
             _ => {}
         }
     }
@@ -364,7 +379,7 @@ impl App {
                     self.view = AppView::Model(super::model::ModelView::Load(
                         LoadModelView::SelectingModel,
                     ));
-                    self.selected_model = 0;
+                    self.model_selector_state.reset();
                     self.status_message.clear();
                 }
             }
@@ -391,8 +406,8 @@ impl App {
 }
 
 /// A Dria & DNET ASCII art banner for the menu screen.
-const MENU_BANNER: [&str; 18] = [
-    "                                                                             ",
+const MENU_LARGE_BANNER: [&str; 12] = [
+    "",
     "      00000    000000                                                        ",
     "   000    000000000000000   0000000000000000      000000000000          00000",
     " 000       000000   000000000   00000    00000 000    00000            000000",
@@ -404,7 +419,9 @@ const MENU_BANNER: [&str; 18] = [
     "     00000     000000     000000   000000    00 000000  0000000000000 00000  ",
     "    00000    0000000     00000     00000 0     000000      000        00000  ",
     " 0000000   00000       0000000    00000000  000000000    000        0000000  ",
-    "",
+];
+
+const MENU_SMALL_BANNER: [&str; 5] = [
     "",
     " ⠀⠀⣠⣤⠐⣦⡀⠀⠴⠢⣤⣄⠀⢀⠄⠀⠀⢠⣶⠂⠀⢐⠆⢀⡤⢠⣤⠂⢤",
     " ⠀⣰⡟⠀⢠⣿⠁⠀⠀⠌⢹⣿⢀⠎⠀⡄⢠⣿⠃⡴⠀⠀⠀⠊⢀⣾⠃⠀⠁",

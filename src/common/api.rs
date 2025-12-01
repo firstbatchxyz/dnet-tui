@@ -19,7 +19,7 @@ impl ApiClient {
     pub fn new(host: &str, port: u16) -> Self {
         ApiClient {
             client: reqwest::Client::new(),
-            base_url: format!("http://{}:{}", host, port),
+            base_url: format!("http://{host}:{port}"),
         }
     }
 

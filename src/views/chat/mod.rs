@@ -14,7 +14,7 @@ use ratatui::{
     text::{Line, Span},
     widgets::{Block, Borders, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState, Wrap},
 };
-use std::{collections::VecDeque, u16};
+use std::collections::VecDeque;
 use tokio::sync::mpsc;
 use tui_input::backend::crossterm::EventHandler;
 
@@ -41,6 +41,8 @@ pub struct ChatState {
     pub scroll_bar: ScrollbarState,
     /// Pending chat message to send
     pub pending_chat_message: Option<String>,
+    /// Whether to show thinking content (default: true)
+    pub show_thinking: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -62,6 +64,7 @@ impl Default for ChatState {
             stream_rx: None,
             input: tui_input::Input::default(),
             pending_chat_message: None,
+            show_thinking: true, // Show thinking by default
         };
 
         // add welcome message
@@ -114,17 +117,23 @@ impl crate::App {
                 self.draw_input_area(frame, input_area, self.state.chat.is_generating);
 
                 // Footer
-                let footer_text = if self.state.chat.is_generating {
-                    "Generating... | Ctrl+C: Stop generation | Esc: Exit chat"
+                let toggle_thinking_hint = if self.state.chat.show_thinking {
+                    "Thinking: OFF" // meaning it will be turned off
                 } else {
-                    "Enter: Send | ↑↓: Scroll | Ctrl+L: Clear | Esc: Exit"
+                    "Thinking: ON" // meaning it will be turned on
                 };
-                frame.render_widget(
-                    Paragraph::new(footer_text)
-                        .style(Style::default().fg(Color::DarkGray))
-                        .centered(),
-                    footer_area,
-                );
+                let footer_text = if self.state.chat.is_generating {
+                    format!(
+                        "Generating... | Ctrl+Q: Abort | Ctrl+T: {} | Esc: Exit",
+                        toggle_thinking_hint
+                    )
+                } else {
+                    format!(
+                        "Enter: Send | ↑↓: Scroll | Ctrl+L: Clear | Ctrl+T: {} | Esc: Exit",
+                        toggle_thinking_hint
+                    )
+                };
+                frame.render_widget(Paragraph::new(footer_text).centered().gray(), footer_area);
             }
             ChatView::Error(err) => {
                 frame.render_widget(
@@ -164,7 +173,8 @@ impl crate::App {
             // Add message content with word wrapping and think tag parsing
             if msg.role == "assistant" {
                 // for assistant messages, parse think tags for the entire content
-                let think_lines = parse_think_tags_to_lines(&msg.content, false);
+                let think_lines =
+                    parse_think_tags_to_lines(&msg.content, false, self.state.chat.show_thinking);
                 lines.extend_from_slice(&think_lines);
             } else {
                 lines.push(Line::from(msg.content.clone()));
@@ -182,7 +192,11 @@ impl crate::App {
             ]));
 
             // parse current response for think tags
-            let think_lines = parse_think_tags_to_lines(&self.state.chat.current_response, true);
+            let think_lines = parse_think_tags_to_lines(
+                &self.state.chat.current_response,
+                true,
+                self.state.chat.show_thinking,
+            );
             lines.extend_from_slice(&think_lines);
         }
 
@@ -194,11 +208,7 @@ impl crate::App {
         // update max scroll
         let (width, height) = (area.width, area.height as usize);
         let num_lines = par.line_count(width - 2); // account for borders
-        let max_scroll = if num_lines > height {
-            num_lines - height
-        } else {
-            0
-        };
+        let max_scroll = num_lines.saturating_sub(height); // prevent underflow
 
         self.state.chat.scroll_max = max_scroll as u16;
 
@@ -249,7 +259,6 @@ impl crate::App {
                         // we allow to exit chat even when generating
                         // the stream may continue in the background
                         self.view = AppView::Menu;
-                        return;
                     }
                     // scroll up (offset shrinks)
                     (_, KeyCode::Up) => {
@@ -270,9 +279,8 @@ impl crate::App {
                             }
                         }
                     }
-                    (KeyModifiers::CONTROL, KeyCode::Char('c') | KeyCode::Char('C')) => {
-                        // stop generation - TODO: would need to implement cancellation
-                        // For now, just return to normal state
+                    (KeyModifiers::CONTROL, KeyCode::Char('q') | KeyCode::Char('Q')) => {
+                        // abort generation - TODO: would need to implement cancellation
                         if !self.state.chat.current_response.is_empty() {
                             self.state
                                 .chat
@@ -283,19 +291,22 @@ impl crate::App {
                         }
                         self.state.chat.current_response.clear();
 
+                        self.state
+                            .chat
+                            .messages
+                            .push_back(ChatMessage::new_system("Generation aborted by user."));
                         self.state.chat.is_generating = false;
-                        self.state.chat.current_response.clear();
                         self.state.chat.stream_rx = None; // clear the stream
-                        self.view = AppView::Menu;
-                        return;
+                    }
+                    (KeyModifiers::CONTROL, KeyCode::Char('t') | KeyCode::Char('T')) => {
+                        self.state.chat.show_thinking = !self.state.chat.show_thinking
                     }
                     _ => {}
                 }
             } else {
-                match (key.modifiers.clone(), key.code.clone()) {
+                match (key.modifiers, key.code) {
                     (_, KeyCode::Esc) => {
                         self.view = AppView::Menu;
-                        return; // early return to prevent state from being overwritten
                     }
                     // scroll up (offset shrinks)
                     (_, KeyCode::Up) => {
@@ -315,6 +326,9 @@ impl crate::App {
                             "Chat cleared. Start a new conversation!",
                         ));
                         self.state.chat.scroll_cur = 0;
+                    }
+                    (KeyModifiers::CONTROL, KeyCode::Char('t') | KeyCode::Char('T')) => {
+                        self.state.chat.show_thinking = !self.state.chat.show_thinking
                     }
 
                     (_, KeyCode::Enter) => {
@@ -455,9 +469,7 @@ async fn stream_chat_response(
             }
 
             // Check if this is a data line
-            if line.starts_with("data: ") {
-                let json_str = &line[6..];
-
+            if let Some(json_str) = line.strip_prefix("data: ") {
                 if json_str.trim() == "[DONE]" {
                     tx.send("DONE".to_string()).ok();
                     return Ok(());

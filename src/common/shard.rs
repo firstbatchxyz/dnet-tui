@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ShardHealthResponse {
+pub struct ShardHealth {
     /// Health status (e.g., 'ok')
     pub status: String,
     /// Whether the node is running

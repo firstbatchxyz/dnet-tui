@@ -136,19 +136,36 @@ pub fn parse_think_tags(text: &str) -> (Option<String>, Option<String>, Option<S
     (before_think, thinking, after_think)
 }
 
-pub fn parse_think_tags_to_lines(text: &str, is_generating: bool) -> Vec<Line> {
+pub fn parse_think_tags_to_lines(
+    text: &str,
+    is_generating: bool,
+    show_thinking: bool,
+) -> Vec<Line> {
     use super::THINK_STYLE;
+    use ratatui::style::Color;
 
     let (before_think, thinking, after_think) = parse_think_tags(text);
     let mut lines = vec![];
+
     if let Some(before_think) = before_think {
         lines.push(Line::raw(before_think));
     };
+
     if let Some(thinking) = thinking.clone() {
-        lines.push(Line::styled(thinking, THINK_STYLE));
+        if show_thinking {
+            // show full thinking content
+            lines.push(Line::styled(thinking, THINK_STYLE));
+        } else {
+            // show "Thinking..." placeholder if there is no `after_think`
+            // meaning that it is still thinking
+            if is_generating && after_think.is_none() {
+                lines.push(Line::styled("Thinking...", Color::Gray));
+            }
+        }
     }
+
     if let Some(after_think) = after_think {
-        if thinking.is_some() {
+        if thinking.is_some() && show_thinking {
             lines.push(Line::raw(""));
             lines.push(Line::styled("---end thinking---", THINK_STYLE));
             lines.push(Line::raw(""))
@@ -158,9 +175,9 @@ pub fn parse_think_tags_to_lines(text: &str, is_generating: bool) -> Vec<Line> {
 
     // if generating, add cursor to the last line
     if is_generating {
-        lines.last_mut().map(|line| {
+        if let Some(line) = lines.last_mut() {
             line.push_span(Span::styled("▌", CURSOR_STYLE));
-        });
+        }
     }
 
     lines
