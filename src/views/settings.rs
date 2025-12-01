@@ -149,7 +149,7 @@ impl App {
         let vertical = Layout::vertical([
             Constraint::Length(3), // Title
             Constraint::Min(0),    // Settings fields
-            Constraint::Length(3), // Footer
+            Constraint::Length(2), // Footer
         ]);
         let [title_area, settings_area, footer_area] = vertical.areas(area);
 
@@ -195,7 +195,7 @@ impl App {
 
         // Footer
         let footer_text = "Press Esc to go back  |  Enter to edit field  |  s to save";
-        frame.render_widget(Paragraph::new(footer_text).centered(), footer_area);
+        frame.render_widget(Paragraph::new(footer_text).centered().gray(), footer_area);
     }
 
     pub fn handle_settings_input(&mut self, key: KeyEvent) {

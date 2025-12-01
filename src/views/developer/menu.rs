@@ -18,7 +18,7 @@ impl crate::App {
         let vertical = Layout::vertical([
             Constraint::Length(3), // Title
             Constraint::Min(0),    // Content
-            Constraint::Length(3), // Footer
+            Constraint::Length(2), // Footer
         ]);
         let [title_area, content_area, footer_area] = vertical.areas(area);
 
@@ -50,7 +50,9 @@ impl crate::App {
 
         // Footer
         frame.render_widget(
-            Paragraph::new("Enter: Select | Esc: Back to main menu").centered(),
+            Paragraph::new("Enter: Select | Esc: Back to main menu")
+                .centered()
+                .gray(),
             footer_area,
         );
     }

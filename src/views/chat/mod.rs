@@ -119,12 +119,7 @@ impl crate::App {
                 } else {
                     "Enter: Send | ↑↓: Scroll | Ctrl+L: Clear | Esc: Exit"
                 };
-                frame.render_widget(
-                    Paragraph::new(footer_text)
-                        .style(Style::default().fg(Color::DarkGray))
-                        .centered(),
-                    footer_area,
-                );
+                frame.render_widget(Paragraph::new(footer_text).centered().gray(), footer_area);
             }
             ChatView::Error(err) => {
                 frame.render_widget(

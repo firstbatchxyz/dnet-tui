@@ -100,8 +100,8 @@ impl App {
         // Footer
         frame.render_widget(
             Paragraph::new("Press Esc to go back to topology")
-                .style(Style::default().fg(Color::DarkGray))
-                .centered(),
+                .centered()
+                .gray(),
             footer_area,
         );
     }

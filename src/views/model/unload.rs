@@ -21,7 +21,7 @@ impl crate::App {
         let vertical = Layout::vertical([
             Constraint::Length(3), // Title
             Constraint::Min(0),    // Content
-            Constraint::Length(3), // Footer
+            Constraint::Length(2), // Footer
         ]);
         let [title_area, content_area, footer_area] = vertical.areas(area);
 
@@ -64,7 +64,7 @@ impl crate::App {
             UnloadModelView::Error(_) | UnloadModelView::Success => "Press Esc to go back",
             UnloadModelView::Unloading => "Please wait...",
         };
-        frame.render_widget(Paragraph::new(footer_text).centered(), footer_area);
+        frame.render_widget(Paragraph::new(footer_text).centered().gray(), footer_area);
     }
 
     pub(super) fn handle_unload_model_input(&mut self, key: KeyEvent, _state: &UnloadModelView) {

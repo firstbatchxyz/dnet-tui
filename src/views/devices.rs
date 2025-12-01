@@ -6,7 +6,7 @@ use ratatui::{
     layout::{Constraint, Layout},
     style::{Color, Modifier, Style, Stylize},
     text::Line,
-    widgets::{Block, List, ListItem, Paragraph},
+    widgets::{Block, Cell, Paragraph, Row, Table},
 };
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
@@ -39,7 +39,7 @@ impl App {
         let vertical = Layout::vertical([
             Constraint::Length(3), // Title
             Constraint::Min(0),    // Content
-            Constraint::Length(3), // Footer
+            Constraint::Length(2), // Footer
         ]);
         let [title_area, content_area, footer_area] = vertical.areas(area);
 
@@ -90,9 +90,7 @@ impl App {
 
         // Footer
         frame.render_widget(
-            Paragraph::new("Press Esc to go back")
-                .style(Style::default().fg(Color::DarkGray))
-                .centered(),
+            Paragraph::new("Press Esc to go back").centered().gray(),
             footer_area,
         );
     }
@@ -110,34 +108,21 @@ impl App {
                 .cmp(&format!("{}:{}", b.1.local_ip, b.1.server_port))
         });
 
-        let items: Vec<ListItem> = devices_vec
+        // Create table headers
+        let header = Row::new(vec![
+            Cell::from("Instance").style(Style::default().add_modifier(Modifier::BOLD)),
+            Cell::from("IP Address").style(Style::default().add_modifier(Modifier::BOLD)),
+            Cell::from("HTTP Port").style(Style::default().add_modifier(Modifier::BOLD)),
+            Cell::from("gRPC Port").style(Style::default().add_modifier(Modifier::BOLD)),
+        ])
+        .style(Style::default().fg(Color::Yellow))
+        .bottom_margin(1);
+
+        // Create table rows
+        let rows: Vec<Row> = devices_vec
             .iter()
             .map(|(_key, device)| {
-                // Build the device info as a simple list
-                let mut status_parts = Vec::new();
-                if device.is_manager {
-                    status_parts.push("[MANAGER]");
-                }
-                if device.is_busy {
-                    status_parts.push("[BUSY]");
-                }
-
-                let status_str = if !status_parts.is_empty() {
-                    format!(" {}", status_parts.join(" "))
-                } else {
-                    String::new()
-                };
-
-                let line = format!(
-                    "{:<64} {:<13} - HTTP:{:<7} gRPC:{:<7}{}",
-                    device.instance,
-                    device.local_ip,
-                    device.server_port,
-                    device.shard_port,
-                    status_str
-                );
-
-                // Style based on status
+                // Determine row style based on status
                 let style = if device.is_manager {
                     Style::default()
                         .fg(Color::Cyan)
@@ -148,19 +133,34 @@ impl App {
                     Style::default().fg(Color::Green)
                 };
 
-                ListItem::new(line).style(style)
+                Row::new(vec![
+                    Cell::from(device.instance.clone()),
+                    Cell::from(device.local_ip.clone()),
+                    Cell::from(device.server_port.to_string()),
+                    Cell::from(device.shard_port.to_string()),
+                ])
+                .style(style)
             })
             .collect();
 
-        let list = List::new(items)
+        // create table with widths
+        let widths = [
+            Constraint::Percentage(56), // Instance
+            Constraint::Percentage(24), // IP Address
+            Constraint::Percentage(10), // HTTP Port
+            Constraint::Percentage(10), // gRPC Port
+        ];
+
+        let table = Table::new(rows, widths)
+            .header(header)
             .block(
                 Block::bordered()
                     .title(format!("{} Devices", devices.len()))
                     .title_style(Style::default().add_modifier(Modifier::BOLD)),
             )
-            .style(Style::default());
+            .column_spacing(1);
 
-        frame.render_widget(list, area);
+        frame.render_widget(table, area);
     }
 
     pub(crate) fn handle_devices_input(&mut self, key: KeyEvent, _view: &DevicesView) {

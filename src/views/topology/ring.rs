@@ -44,7 +44,7 @@ impl crate::App {
         let vertical = Layout::vertical([
             Constraint::Length(3), // Title
             Constraint::Min(0),    // Content
-            Constraint::Length(3), // Footer
+            Constraint::Length(2), // Footer
         ]);
         let [title_area, content_area, footer_area] = vertical.areas(area);
 
@@ -144,7 +144,7 @@ impl crate::App {
             }
             _ => "Press Esc to go back",
         };
-        frame.render_widget(Paragraph::new(footer_text).centered(), footer_area);
+        frame.render_widget(Paragraph::new(footer_text).centered().gray(), footer_area);
     }
 
     pub fn draw_topology_ring(&mut self, frame: &mut Frame, area: ratatui::layout::Rect) {

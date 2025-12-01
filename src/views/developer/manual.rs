@@ -88,7 +88,9 @@ fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
 }
 
 /// Helper to partition shards into unassigned and assigned lists
-fn partition_shards(state: &ManualAssignmentState) -> (Vec<(usize, &ShardInfo)>, Vec<(usize, &ShardInfo)>) {
+fn partition_shards(
+    state: &ManualAssignmentState,
+) -> (Vec<(usize, &ShardInfo)>, Vec<(usize, &ShardInfo)>) {
     let mut unassigned = Vec::new();
     let mut assigned = Vec::new();
 
@@ -116,7 +118,7 @@ impl crate::App {
         let vertical = Layout::vertical([
             Constraint::Length(3), // Title
             Constraint::Min(0),    // Content
-            Constraint::Length(3), // Footer
+            Constraint::Length(2), // Footer
         ]);
         let [title_area, content_area, footer_area] = vertical.areas(area);
 
@@ -205,10 +207,7 @@ impl crate::App {
             ManualAssignmentView::Submitting => "Submitting topology...",
         };
 
-        frame.render_widget(
-            Paragraph::new(footer_text).centered().fg(Color::Gray),
-            footer_area,
-        );
+        frame.render_widget(Paragraph::new(footer_text).centered().gray(), footer_area);
     }
 
     fn draw_model_selection_for_manual(&mut self, frame: &mut Frame, area: Rect) {
@@ -327,16 +326,14 @@ impl crate::App {
         let (unassigned, assigned) = partition_shards(state);
 
         match state.selected_column {
-            ColumnSelection::Unassigned => {
-                unassigned.get(state.selected_unassigned_index)
-                    .map(|(idx, shard)| (Some(*idx), Some(shard.device.instance.clone())))
-                    .unwrap_or((None, None))
-            }
-            ColumnSelection::Assigned => {
-                assigned.get(state.selected_assigned_index)
-                    .map(|(idx, shard)| (Some(*idx), Some(shard.device.instance.clone())))
-                    .unwrap_or((None, None))
-            }
+            ColumnSelection::Unassigned => unassigned
+                .get(state.selected_unassigned_index)
+                .map(|(idx, shard)| (Some(*idx), Some(shard.device.instance.clone())))
+                .unwrap_or((None, None)),
+            ColumnSelection::Assigned => assigned
+                .get(state.selected_assigned_index)
+                .map(|(idx, shard)| (Some(*idx), Some(shard.device.instance.clone())))
+                .unwrap_or((None, None)),
         }
     }
 
@@ -362,10 +359,7 @@ impl crate::App {
                 shard_name.bold().cyan(),
             ]),
             Line::from(""),
-            Line::from(vec![
-                "Input: ".into(),
-                self.input_buffer.clone().yellow(),
-            ]),
+            Line::from(vec!["Input: ".into(), self.input_buffer.clone().yellow()]),
             Line::from(""),
             Line::from("Remaining layers:".bold()),
         ];
@@ -373,7 +367,10 @@ impl crate::App {
         if remaining_layers.is_empty() {
             content.push(Line::from("  All layers assigned!".green()));
         } else {
-            content.push(Line::from(format!("  {}", format_layers(&remaining_layers))));
+            content.push(Line::from(format!(
+                "  {}",
+                format_layers(&remaining_layers)
+            )));
         }
 
         content.push(Line::from(""));
@@ -391,7 +388,7 @@ impl crate::App {
                 Block::default()
                     .title(" Assign Layers ")
                     .borders(Borders::ALL)
-                    .border_style(Style::default().fg(Color::Cyan))
+                    .border_style(Style::default().fg(Color::Cyan)),
             )
             .wrap(Wrap { trim: false });
 
@@ -408,8 +405,8 @@ impl crate::App {
 
         // Split area into layer viz and status message
         let chunks = Layout::vertical([
-            Constraint::Min(3),     // Layer visualization
-            Constraint::Length(3),  // Status message
+            Constraint::Min(3),    // Layer visualization
+            Constraint::Length(3), // Status message
         ])
         .split(area);
 
@@ -599,7 +596,8 @@ impl crate::App {
                                 state.selected_column = ColumnSelection::Unassigned;
                                 // Clamp selection to valid range
                                 if state.selected_unassigned_index >= unassigned_count {
-                                    state.selected_unassigned_index = unassigned_count.saturating_sub(1);
+                                    state.selected_unassigned_index =
+                                        unassigned_count.saturating_sub(1);
                                 }
                             }
                         }
@@ -609,7 +607,8 @@ impl crate::App {
                                 state.selected_column = ColumnSelection::Assigned;
                                 // Clamp selection to valid range
                                 if state.selected_assigned_index >= assigned_count {
-                                    state.selected_assigned_index = assigned_count.saturating_sub(1);
+                                    state.selected_assigned_index =
+                                        assigned_count.saturating_sub(1);
                                 }
                             }
                         }
@@ -632,12 +631,16 @@ impl crate::App {
                             // Navigate within current column
                             match state.selected_column {
                                 ColumnSelection::Unassigned => {
-                                    if unassigned_count > 0 && state.selected_unassigned_index < unassigned_count - 1 {
+                                    if unassigned_count > 0
+                                        && state.selected_unassigned_index < unassigned_count - 1
+                                    {
                                         state.selected_unassigned_index += 1;
                                     }
                                 }
                                 ColumnSelection::Assigned => {
-                                    if assigned_count > 0 && state.selected_assigned_index < assigned_count - 1 {
+                                    if assigned_count > 0
+                                        && state.selected_assigned_index < assigned_count - 1
+                                    {
                                         state.selected_assigned_index += 1;
                                     }
                                 }
@@ -650,7 +653,8 @@ impl crate::App {
                                 .values()
                                 .flat_map(|v| v.iter().cloned())
                                 .collect();
-                            let missing_layers = find_missing_layers(&all_assigned_layers, state.num_layers);
+                            let missing_layers =
+                                find_missing_layers(&all_assigned_layers, state.num_layers);
 
                             if missing_layers.is_empty() {
                                 // All layers assigned - submit!
@@ -677,7 +681,9 @@ impl crate::App {
                                     state.selected_unassigned_index = 0;
                                 } else if state.selected_column == ColumnSelection::Assigned {
                                     // Clamp selection if we removed the last item in assigned list
-                                    if state.selected_assigned_index >= assigned.len() && !assigned.is_empty() {
+                                    if state.selected_assigned_index >= assigned.len()
+                                        && !assigned.is_empty()
+                                    {
                                         state.selected_assigned_index = assigned.len() - 1;
                                     }
                                 }
