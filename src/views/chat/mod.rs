@@ -296,7 +296,6 @@ impl crate::App {
                             .messages
                             .push_back(ChatMessage::new_system("Generation aborted by user."));
                         self.state.chat.is_generating = false;
-                        self.state.chat.current_response.clear();
                         self.state.chat.stream_rx = None; // clear the stream
                     }
                     (KeyModifiers::CONTROL, KeyCode::Char('t') | KeyCode::Char('T')) => {
