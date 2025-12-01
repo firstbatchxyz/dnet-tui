@@ -1,7 +1,6 @@
 use dnet_tui::common::ModelInfo;
 use dnet_tui::model::{LoadModelView, ModelView};
 use dnet_tui::{App, AppView};
-use std::vec;
 
 // cargo test --package dnet-tui --test test_model_selector -- test_model_selector --exact --nocapture --ignored
 #[tokio::test]
