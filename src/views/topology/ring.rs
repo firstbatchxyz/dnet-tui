@@ -431,11 +431,9 @@ impl crate::App {
                     || error_msg.contains("refused")
                     || error_msg.contains("error sending request")
                 {
-                    format!(
-                        "Cannot connect to API server. Please check your settings and ensure the server is running.",
-                    )
+                    "Cannot connect to API server. Please check your settings and ensure the server is running.".to_string()
                 } else {
-                    format!("Error: {}", error_msg)
+                    format!("Error: {error_msg}")
                 };
 
                 self.view = AppView::Topology(super::TopologyView::Ring(TopologyRingView::Error(

@@ -19,3 +19,6 @@ serde_json = "1.0"
 tui-input = { version = "0.14.0", default-features = false, features = [
   "crossterm",
 ] }
+
+[lints.clippy]
+uninlined_format_args = "allow"

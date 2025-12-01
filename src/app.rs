@@ -192,12 +192,11 @@ impl App {
                     //
                     // note that this will still cause the event queue to be filled up,
                     // which may delay other inputs, but it's a reasonable trade-off
-                    if matches!(key.code, KeyCode::Esc) {
-                        if Instant::now().duration_since(self.last_arrow_key_time)
+                    if matches!(key.code, KeyCode::Esc)
+                        && Instant::now().duration_since(self.last_arrow_key_time)
                             < Duration::from_millis(50)
-                        {
-                            return Ok(());
-                        }
+                    {
+                        return Ok(());
                     }
 
                     // application-wide CTRL+C handler

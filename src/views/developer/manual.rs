@@ -88,6 +88,7 @@ fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
 }
 
 /// Helper to partition shards into unassigned and assigned lists
+#[allow(clippy::type_complexity)] // return type makes clippy angry
 fn partition_shards(
     state: &ManualAssignmentState,
 ) -> (Vec<(usize, &ShardInfo)>, Vec<(usize, &ShardInfo)>) {
@@ -588,7 +589,6 @@ impl crate::App {
                             self.view = AppView::Developer(DeveloperView::ManualAssignment(
                                 ManualAssignmentView::SelectingModel,
                             ));
-                            return;
                         }
                         (_, KeyCode::Left) => {
                             // Move to unassigned column
@@ -657,11 +657,10 @@ impl crate::App {
                                 find_missing_layers(&all_assigned_layers, state.num_layers);
 
                             if missing_layers.is_empty() {
-                                // All layers assigned - submit!
+                                // all layers assigned - submit!
                                 self.view = AppView::Developer(DeveloperView::ManualAssignment(
                                     ManualAssignmentView::Submitting,
                                 ));
-                                return;
                             } else {
                                 // Not all assigned - enter typing mode
                                 state.is_typing = true;
@@ -669,7 +668,7 @@ impl crate::App {
                                 self.status_message.clear();
                             }
                         }
-                        (KeyModifiers::CONTROL, KeyCode::Char('d')) => {
+                        (KeyModifiers::CONTROL, KeyCode::Char('d') | KeyCode::Char('D')) => {
                             // Deassign layers from the selected shard
                             if let (_, Some(name)) = shard_info {
                                 state.assignments.remove(&name);
@@ -884,7 +883,7 @@ impl crate::App {
             }
             ManualAssignmentView::LoadingModel(model) => {
                 // Load the model using the existing LoadModelState functionality
-                match self.api.load_model(&model).await {
+                match self.api.load_model(model).await {
                     Ok(_response) => {
                         self.view = AppView::Developer(DeveloperView::ManualAssignment(
                             ManualAssignmentView::Success,

@@ -182,6 +182,7 @@ impl App {
         let now = std::time::Instant::now();
 
         // if API is offline, perform health-checks
+        #[allow(clippy::collapsible_if)] // we may add more cases later
         if !self.is_api_online {
             if now.duration_since(self.state.menu.last_health_check) >= Self::HEALTH_CHECK_INTERVAL
             {

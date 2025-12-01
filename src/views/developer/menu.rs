@@ -27,7 +27,7 @@ impl crate::App {
         frame.render_widget(Paragraph::new(title), title_area);
 
         // Menu items - just one option now
-        let menu_items = vec!["Manual Layer Assignment - Manually assign layers to shards"];
+        let menu_items = ["Manual Layer Assignment - Manually assign layers to shards"];
 
         let items: Vec<ListItem> = menu_items
             .iter()

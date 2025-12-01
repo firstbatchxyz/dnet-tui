@@ -164,11 +164,8 @@ impl App {
     }
 
     pub(crate) fn handle_devices_input(&mut self, key: KeyEvent, _view: &DevicesView) {
-        match (key.modifiers, key.code) {
-            (_, KeyCode::Esc) => {
-                self.view = AppView::Menu;
-            }
-            _ => {}
+        if key.code == KeyCode::Esc {
+            self.view = AppView::Menu;
         }
     }
 

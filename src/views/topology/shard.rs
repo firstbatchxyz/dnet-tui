@@ -200,16 +200,12 @@ impl App {
     }
 
     pub(super) fn handle_shard_interaction_input(&mut self, key: KeyEvent) {
-        match key.code {
-            KeyCode::Esc => {
-                // go back to topology view
-                if let AppView::Topology(TopologyView::Shard(_, _)) = &self.view {
-                    self.view = AppView::Topology(super::TopologyView::Ring(
-                        super::TopologyRingView::Loaded,
-                    ));
-                }
+        if key.code == KeyCode::Esc {
+            // go back to topology view
+            if let AppView::Topology(TopologyView::Shard(_, _)) = &self.view {
+                self.view =
+                    AppView::Topology(super::TopologyView::Ring(super::TopologyRingView::Loaded));
             }
-            _ => {}
         }
     }
 

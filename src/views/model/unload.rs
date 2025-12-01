@@ -69,9 +69,8 @@ impl crate::App {
 
     pub(super) fn handle_unload_model_input(&mut self, key: KeyEvent, _state: &UnloadModelView) {
         // only allow ESC to go back
-        match key.code {
-            KeyCode::Esc => self.view = crate::AppView::Menu,
-            _ => {}
+        if key.code == KeyCode::Esc {
+            self.view = crate::AppView::Menu;
         }
     }
 

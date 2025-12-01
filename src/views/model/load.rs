@@ -1,7 +1,7 @@
 use super::ModelView;
 use crate::common::LoadModelResponse;
 use crate::{App, AppView};
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::{
     Frame,
     layout::{Constraint, Layout},
@@ -168,23 +168,12 @@ impl App {
                 _ => {}
             },
             LoadModelView::Error(_) | LoadModelView::Success(_) => {
-                match (key.modifiers, key.code) {
-                    (_, KeyCode::Esc) => self.view = AppView::Menu,
-                    _ => {}
+                // only allow escape
+                if key.code == KeyCode::Esc {
+                    self.view = AppView::Menu;
                 }
             }
-            _ => {
-                // During loading states, only allow quitting
-                if matches!(
-                    (key.modifiers, key.code),
-                    (
-                        KeyModifiers::CONTROL,
-                        KeyCode::Char('c') | KeyCode::Char('C')
-                    )
-                ) {
-                    self.quit();
-                }
-            }
+            _ => {}
         }
     }
 
@@ -218,7 +207,7 @@ impl App {
                         self.topology = Some(topology);
 
                         // load the model
-                        match self.api.load_model(&model).await {
+                        match self.api.load_model(model).await {
                             Ok(load_response) => {
                                 self.view = AppView::Model(ModelView::Load(
                                     LoadModelView::Success(load_response),

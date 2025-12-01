@@ -158,9 +158,9 @@ pub fn parse_think_tags_to_lines(text: &str, is_generating: bool) -> Vec<Line> {
 
     // if generating, add cursor to the last line
     if is_generating {
-        lines.last_mut().map(|line| {
+        if let Some(line) = lines.last_mut() {
             line.push_span(Span::styled("▌", CURSOR_STYLE));
-        });
+        }
     }
 
     lines

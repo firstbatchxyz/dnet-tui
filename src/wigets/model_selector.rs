@@ -1,11 +1,14 @@
 use ratatui::{
     layout::Rect,
     style::{Color, Modifier, Style},
-    widgets::{Block, List, ListItem, Scrollbar, ScrollbarOrientation, ScrollbarState, StatefulWidget, Widget},
+    widgets::{
+        Block, List, ListItem, Scrollbar, ScrollbarOrientation, ScrollbarState, StatefulWidget,
+        Widget,
+    },
 };
 
 /// State for the ModelSelector widget.
-#[derive(Debug, Clone)]
+#[derive(Default, Debug, Clone)]
 pub struct ModelSelectorState {
     /// The currently selected index.
     selected: usize,
@@ -13,16 +16,6 @@ pub struct ModelSelectorState {
     offset: usize,
     /// Scrollbar state.
     scrollbar_state: ScrollbarState,
-}
-
-impl Default for ModelSelectorState {
-    fn default() -> Self {
-        Self {
-            selected: 0,
-            offset: 0,
-            scrollbar_state: ScrollbarState::default(),
-        }
-    }
 }
 
 impl ModelSelectorState {
@@ -81,7 +74,8 @@ impl ModelSelectorState {
 
     /// Update scrollbar state.
     fn update_scrollbar(&mut self, content_length: usize) {
-        self.scrollbar_state = self.scrollbar_state
+        self.scrollbar_state = self
+            .scrollbar_state
             .content_length(content_length)
             .position(self.selected);
     }

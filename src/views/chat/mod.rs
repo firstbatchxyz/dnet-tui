@@ -14,7 +14,7 @@ use ratatui::{
     text::{Line, Span},
     widgets::{Block, Borders, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState, Wrap},
 };
-use std::{collections::VecDeque, u16};
+use std::collections::VecDeque;
 use tokio::sync::mpsc;
 use tui_input::backend::crossterm::EventHandler;
 
@@ -189,11 +189,7 @@ impl crate::App {
         // update max scroll
         let (width, height) = (area.width, area.height as usize);
         let num_lines = par.line_count(width - 2); // account for borders
-        let max_scroll = if num_lines > height {
-            num_lines - height
-        } else {
-            0
-        };
+        let max_scroll = num_lines.saturating_sub(height); // prevent underflow
 
         self.state.chat.scroll_max = max_scroll as u16;
 
@@ -244,7 +240,6 @@ impl crate::App {
                         // we allow to exit chat even when generating
                         // the stream may continue in the background
                         self.view = AppView::Menu;
-                        return;
                     }
                     // scroll up (offset shrinks)
                     (_, KeyCode::Up) => {
@@ -288,10 +283,9 @@ impl crate::App {
                     _ => {}
                 }
             } else {
-                match (key.modifiers.clone(), key.code.clone()) {
+                match (key.modifiers, key.code) {
                     (_, KeyCode::Esc) => {
                         self.view = AppView::Menu;
-                        return; // early return to prevent state from being overwritten
                     }
                     // scroll up (offset shrinks)
                     (_, KeyCode::Up) => {
@@ -451,9 +445,7 @@ async fn stream_chat_response(
             }
 
             // Check if this is a data line
-            if line.starts_with("data: ") {
-                let json_str = &line[6..];
-
+            if let Some(json_str) = line.strip_prefix("data: ") {
                 if json_str.trim() == "[DONE]" {
                     tx.send("DONE".to_string()).ok();
                     return Ok(());
