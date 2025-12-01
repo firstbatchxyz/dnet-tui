@@ -41,6 +41,8 @@ pub struct ChatState {
     pub scroll_bar: ScrollbarState,
     /// Pending chat message to send
     pub pending_chat_message: Option<String>,
+    /// Whether to show thinking content (default: true)
+    pub show_thinking: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -62,6 +64,7 @@ impl Default for ChatState {
             stream_rx: None,
             input: tui_input::Input::default(),
             pending_chat_message: None,
+            show_thinking: true, // Show thinking by default
         };
 
         // add welcome message
@@ -114,10 +117,21 @@ impl crate::App {
                 self.draw_input_area(frame, input_area, self.state.chat.is_generating);
 
                 // Footer
-                let footer_text = if self.state.chat.is_generating {
-                    "Generating... | Ctrl+Q: Abort generation | Esc: Exit"
+                let toggle_thinking_hint = if self.state.chat.show_thinking {
+                    "Thinking: OFF" // meaning it will be turned off
                 } else {
-                    "Enter: Send | ↑↓: Scroll | Ctrl+L: Clear | Esc: Exit"
+                    "Thinking: ON" // meaning it will be turned on
+                };
+                let footer_text = if self.state.chat.is_generating {
+                    format!(
+                        "Generating... | Ctrl+Q: Abort | Ctrl+T: {} | Esc: Exit",
+                        toggle_thinking_hint
+                    )
+                } else {
+                    format!(
+                        "Enter: Send | ↑↓: Scroll | Ctrl+L: Clear | Ctrl+T: {} | Esc: Exit",
+                        toggle_thinking_hint
+                    )
                 };
                 frame.render_widget(Paragraph::new(footer_text).centered().gray(), footer_area);
             }
@@ -159,7 +173,8 @@ impl crate::App {
             // Add message content with word wrapping and think tag parsing
             if msg.role == "assistant" {
                 // for assistant messages, parse think tags for the entire content
-                let think_lines = parse_think_tags_to_lines(&msg.content, false);
+                let think_lines =
+                    parse_think_tags_to_lines(&msg.content, false, self.state.chat.show_thinking);
                 lines.extend_from_slice(&think_lines);
             } else {
                 lines.push(Line::from(msg.content.clone()));
@@ -177,7 +192,11 @@ impl crate::App {
             ]));
 
             // parse current response for think tags
-            let think_lines = parse_think_tags_to_lines(&self.state.chat.current_response, true);
+            let think_lines = parse_think_tags_to_lines(
+                &self.state.chat.current_response,
+                true,
+                self.state.chat.show_thinking,
+            );
             lines.extend_from_slice(&think_lines);
         }
 
@@ -280,6 +299,9 @@ impl crate::App {
                         self.state.chat.current_response.clear();
                         self.state.chat.stream_rx = None; // clear the stream
                     }
+                    (KeyModifiers::CONTROL, KeyCode::Char('t') | KeyCode::Char('T')) => {
+                        self.state.chat.show_thinking = !self.state.chat.show_thinking
+                    }
                     _ => {}
                 }
             } else {
@@ -305,6 +327,9 @@ impl crate::App {
                             "Chat cleared. Start a new conversation!",
                         ));
                         self.state.chat.scroll_cur = 0;
+                    }
+                    (KeyModifiers::CONTROL, KeyCode::Char('t') | KeyCode::Char('T')) => {
+                        self.state.chat.show_thinking = !self.state.chat.show_thinking
                     }
 
                     (_, KeyCode::Enter) => {
