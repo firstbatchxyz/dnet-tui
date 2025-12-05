@@ -115,7 +115,7 @@ fn default_devices_refresh_interval() -> u64 { 1 }
 fn default_max_batch_exp() -> u8 { 2 }
 #[inline(always)]
 #[rustfmt::skip]
-fn default_seq_len() -> u32 { 512 }
+fn default_seq_len() -> u32 { 4096 }
 
 impl Default for Config {
     fn default() -> Self {
